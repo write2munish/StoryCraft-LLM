@@ -1,4 +1,4 @@
-# 🚀 LLM-From-First-Principles: Building a Large Language Model from Scratch
+# 🚀 StoryCraft-LLM: Building a Modern Large Language Model from First Principles
 
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-EE4C2C.svg?style=flat&logo=pytorch)](https://pytorch.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)

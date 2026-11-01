@@ -1,4 +1,6 @@
-# 📚 LLM-From-First-Principles: Complete Course Curriculum
+# 📚 StoryCraft-LLM: Complete Course Curriculum
+
+> **Building a Modern Large Language Model from First Principles**
 
 > **A First-Principles Journey Through LLM Architecture, Pre-training, Fine-Tuning, Alignment, and Deployment**  
 > *Central Unifying Anchor: The Tiny Story Generator ("StoryCraft-LLM")*  

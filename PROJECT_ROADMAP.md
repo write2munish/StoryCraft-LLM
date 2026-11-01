@@ -1,4 +1,6 @@
-# 🗓️ LLM-From-First-Principles: Project Roadmap & Execution Schedules
+# 🗓️ StoryCraft-LLM: Project Roadmap & Execution Schedules
+
+> **Building a Modern Large Language Model from First Principles**
 
 This document provides learning paths, milestone checklists, hardware benchmarks, and dataset acquisition instructions for completing or teaching the **StoryCraft-LLM** course.
 
