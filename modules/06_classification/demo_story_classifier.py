@@ -4,146 +4,147 @@ Module 06: Discriminative LLMs - Story Classification & Moderation
 Central Anchor: StoryCraft-LLM (The Tiny Story Generator)
 
 This script demonstrates:
-1. Adapting a causal autoregressive LLM into a sequence classifier.
-2. Why the last token representation h[:, -1, :] aggregates the whole story.
-3. Multi-class story genre classification (Adventure, Bedtime, Animal, Fantasy).
-4. Safety / Content Moderation filter (Safe vs Unsafe/Scary).
-5. Backbone parameter freezing vs training the classification head.
+1. Loading the persistent pre-trained backbone: checkpoints/storycraft_base.pt.
+2. Converting a causal autoregressive LM into a sequence classifier (The Dual LLM Paradigm).
+3. Extracting the last token representation h[:, -1, :] to aggregate full narrative context.
+4. Multi-class story genre classification and safety content moderation.
+5. Saving the fine-tuned classifier to checkpoints/storycraft_classifier.pt.
 
 Run this script:
     python3 modules/06_classification/demo_story_classifier.py
 """
 
-from typing import Dict, List
+import os
+import sys
+from typing import Dict
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+sys.path.insert(0, repo_root)
+from storycraft import StoryTokenizer, StoryCraftLM
 
-# ============================================================================
-# 1. Story Classification Architecture
-# ============================================================================
+
 class StoryClassifier(nn.Module):
-    """
-    Wraps a causal Transformer backbone for discriminative sequence classification.
-    Takes story tokens, runs through Transformer blocks, extracts the last token vector,
-    and projects into K genre classes and 2 safety classes.
-    """
-    def __init__(self, vocab_size: int = 1000, d_model: int = 64, num_genres: int = 4):
+    def __init__(self, base_model: StoryCraftLM, num_genres: int = 4, num_safety: int = 2):
         super().__init__()
-        # Backbone (Simulated minimal causal transformer)
-        self.tok_embed = nn.Embedding(vocab_size, d_model)
-        self.encoder_layer = nn.TransformerEncoderLayer(
-            d_model=d_model, nhead=4, dim_feedforward=128, batch_first=True
-        )
-
-        # Classification Heads attached to the last token vector
-        self.genre_head = nn.Linear(d_model, num_genres)      # Multi-class
-        self.safety_head = nn.Linear(d_model, 2)              # Binary (Safe / Unsafe)
+        self.base_model = base_model
+        d_model = base_model.d_model
+        self.genre_head = nn.Linear(d_model, num_genres)
+        self.safety_head = nn.Linear(d_model, num_safety)
 
     def freeze_backbone(self):
-        """Freeze embedding and transformer layers for head-only fine-tuning."""
-        for param in self.tok_embed.parameters():
+        for param in self.base_model.parameters():
             param.requires_grad = False
-        for param in self.encoder_layer.parameters():
-            param.requires_grad = False
-        print("[Classifier] Backbone weights frozen. Only classification heads will train.")
+        print("   [Classifier] Base backbone weights frozen. Only classification heads will update.")
 
     def forward(self, token_ids: torch.Tensor) -> Dict[str, torch.Tensor]:
-        # token_ids: [Batch, Sequence_Len]
-        hidden_states = self.tok_embed(token_ids)
-        hidden_states = self.encoder_layer(hidden_states)  # [B, T, d_model]
-
-        # Extract the representation of the LAST token: [B, d_model]
-        # In a causal decoder, the last token has attended to all prior tokens!
-        last_token_repr = hidden_states[:, -1, :]
-
-        genre_logits = self.genre_head(last_token_repr)    # [B, num_genres]
-        safety_logits = self.safety_head(last_token_repr)  # [B, 2]
+        h = self.base_model.tok_embed(token_ids)
+        for block in self.base_model.blocks:
+            h, _ = block(h)
+        h = self.base_model.norm_final(h)
+        last_tok = h[:, -1, :]  # Causal representation of full story
         return {
-            "genre_logits": genre_logits,
-            "safety_logits": safety_logits
+            "genre_logits": self.genre_head(last_tok),
+            "safety_logits": self.safety_head(last_tok)
         }
 
 
-# ============================================================================
-# 2. Demonstration Runner
-# ============================================================================
 def main():
     print("=" * 70)
     print("🏷️ MODULE 06: DISCRIMINATIVE LLMs - STORY CLASSIFIER & MODERATION")
     print("=" * 70)
 
+    chk_dir = os.path.join(repo_root, "checkpoints")
+    tok_path = os.path.join(chk_dir, "tokenizer.pkl")
+    base_path = os.path.join(chk_dir, "storycraft_base.pt")
+    out_clf_path = os.path.join(chk_dir, "storycraft_classifier.pt")
+
     genre_labels = ["Adventure", "Bedtime", "Animal", "Fantasy"]
     safety_labels = ["Safe", "Unsafe / Scary"]
 
-    model = StoryClassifier(vocab_size=1000, d_model=64, num_genres=len(genre_labels))
-    
-    # Check parameter counts
-    backbone_params = sum(p.numel() for p in model.tok_embed.parameters()) + sum(p.numel() for p in model.encoder_layer.parameters())
-    head_params = sum(p.numel() for p in model.genre_head.parameters()) + sum(p.numel() for p in model.safety_head.parameters())
+    # 1. Load Pretrained Backbone from Module 04
+    print("\n1. Loading Pretrained Backbone Checkpoint:")
+    if os.path.exists(tok_path) and os.path.exists(base_path):
+        tokenizer = StoryTokenizer.from_pretrained(tok_path)
+        ckpt = torch.load(base_path, map_location="cpu", weights_only=False)
+        base_model = StoryCraftLM(**ckpt["config"])
+        base_model.load_state_dict(ckpt["model_state_dict"])
+        print(f"   ✓ Successfully loaded backbone from: {base_path}")
+    else:
+        tokenizer = StoryTokenizer(target_vocab_size=128)
+        base_model = StoryCraftLM(vocab_size=128, d_model=64, n_layers=2, n_heads=2)
 
-    print("\n1. Model Architecture & Dual-Use Transition:")
-    print(f"   - Backbone parameters (Language Model): {backbone_params:,}")
-    print(f"   - Classification Head parameters:       {head_params:,}")
-    print("   Notice that the classification heads require less than 1% of the model weights!")
-
-    # 2. Freeze backbone
-    print("\n2. Freezing Backbone for Efficient Fine-Tuning:")
+    model = StoryClassifier(base_model, num_genres=len(genre_labels), num_safety=len(safety_labels))
     model.freeze_backbone()
 
-    # 3. Simulated Stories and Labels
-    print("\n3. Classifying Incoming Story Samples:")
+    # 2. Labeled Training Samples
     sample_stories = [
-        ("Once upon a time a knight climbed a steep rocky mountain to find treasure.", 0, 0),  # Adventure, Safe
-        ("A sleepy little bear yawned and closed his eyes under the warm starry sky.", 1, 0),   # Bedtime, Safe
-        ("A puppy and a kitten chased a butterfly across the sunny grassy meadow.", 2, 0),     # Animal, Safe
-        ("A dark monster with sharp fangs jumped out of the shadow to destroy the village.", 3, 1), # Fantasy, Unsafe
+        ("Once upon a time a knight climbed a rocky mountain to find treasure.", 0, 0),
+        ("A sleepy little bear yawned under the warm starry night sky.", 1, 0),
+        ("A puppy chased a butterfly across the sunny grassy garden meadow.", 2, 0),
+        ("A scary monster with sharp fangs jumped out to attack the village.", 3, 1),
     ]
 
-    torch.manual_seed(42)
-    # Simulate tokenized stories: Batch=4, Seq_len=12
-    batch_input = torch.randint(10, 1000, (4, 12))
-    genre_targets = torch.tensor([s[1] for s in sample_stories], dtype=torch.long)
-    safety_targets = torch.tensor([s[2] for s in sample_stories], dtype=torch.long)
+    # Tokenize samples
+    batch_tokens = []
+    max_len = 16
+    for text, _, _ in sample_stories:
+        ids = tokenizer.encode(text, add_special_tokens=False)[:max_len]
+        while len(ids) < max_len:
+            ids.append(tokenizer.pad_id)
+        batch_tokens.append(ids)
 
-    # 4. Forward Pass & Loss
-    outputs = model(batch_input)
-    genre_probs = F.softmax(outputs["genre_logits"], dim=-1)
-    safety_probs = F.softmax(outputs["safety_logits"], dim=-1)
+    x = torch.tensor(batch_tokens, dtype=torch.long)
+    target_genres = torch.tensor([s[1] for s in sample_stories], dtype=torch.long)
+    target_safety = torch.tensor([s[2] for s in sample_stories], dtype=torch.long)
 
-    print("\n4. Predictions on Story Batch (Untrained Head):")
-    for i, (text, true_genre, true_safety) in enumerate(sample_stories):
-        pred_genre = torch.argmax(genre_probs[i]).item()
-        pred_safety = torch.argmax(safety_probs[i]).item()
-        print(f"\n   Story {i+1}: \"{text[:55]}...\"")
-        print(f"   - Target: Genre='{genre_labels[true_genre]}', Safety='{safety_labels[true_safety]}'")
-        print(f"   - Output: Genre='{genre_labels[pred_genre]}' (conf: {genre_probs[i, pred_genre]:.1%}), "
-              f"Safety='{safety_labels[pred_safety]}' (conf: {safety_probs[i, pred_safety]:.1%})")
-
-    # 5. One Step of Training on Classification Heads
-    print("\n5. Running One Training Step (Updating Heads Only):")
-    loss_fn = nn.CrossEntropyLoss()
-    loss_genre = loss_fn(outputs["genre_logits"], genre_targets)
-    loss_safety = loss_fn(outputs["safety_logits"], safety_targets)
-    total_loss = loss_genre + loss_safety
-
+    # 3. Fine-tuning Classification Heads
+    print("\n2. Fine-Tuning Classification Heads on Story Dataset:")
     optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-3)
-    optimizer.zero_grad()
-    total_loss.backward()
-    optimizer.step()
+    loss_fn = nn.CrossEntropyLoss()
 
-    print(f"   Combined Loss: {total_loss.item():.4f} (Genre: {loss_genre.item():.4f}, Safety: {loss_safety.item():.4f})")
-    print("   Gradients computed ONLY on heads; backbone remained intact!")
+    for epoch in range(1, 4):
+        optimizer.zero_grad()
+        out = model(x)
+        l_genre = loss_fn(out["genre_logits"], target_genres)
+        l_safety = loss_fn(out["safety_logits"], target_safety)
+        total_loss = l_genre + l_safety
+        total_loss.backward()
+        optimizer.step()
+        print(f"   Epoch {epoch}: Total Loss = {total_loss.item():.4f} (Genre: {l_genre.item():.4f}, Safety: {l_safety.item():.4f})")
+
+    # 4. Save Classifier Checkpoint
+    torch.save({
+        "classifier_state_dict": model.state_dict(),
+        "genre_labels": genre_labels,
+        "safety_labels": safety_labels
+    }, out_clf_path)
+    print(f"\n3. Persistent Checkpoint Saved:")
+    print(f"   ✓ Saved classifier model to: {out_clf_path}")
+
+    # 5. Predictions on Test Story
+    print("\n4. Testing Classification & Moderation on a New Story:")
+    test_story = "Lily and her puppy chased a red ball in the sunny garden."
+    test_ids = tokenizer.encode(test_story, add_special_tokens=False)[:max_len]
+    test_tensor = torch.tensor([test_ids], dtype=torch.long)
+
+    with torch.no_grad():
+        preds = model(test_tensor)
+        pred_genre = genre_labels[torch.argmax(preds["genre_logits"]).item()]
+        pred_safety = safety_labels[torch.argmax(preds["safety_logits"]).item()]
+
+    print(f"   Story: \"{test_story}\"")
+    print(f"   -> Predicted Genre:  {pred_genre}")
+    print(f"   -> Content Safety:   {pred_safety}")
 
     print("\n" + "=" * 70)
     print("💡 KEY PEDAGOGICAL TAKEAWAYS:")
     print("=" * 70)
-    print("1. LLMs are not just text generators—they are general feature extractors.")
-    print("2. The final token's hidden state aggregates the full narrative context.")
-    print("3. Pre-trained weights can be repurposed for content moderation and metadata tagging")
-    print("   with minimal training overhead.")
-    print("👉 Next: Module 07 explores Instruction Tuning (SFT) and LoRA from scratch!")
+    print("1. Module 06 loads the exact checkpoints/storycraft_base.pt saved by Module 04.")
+    print("2. The frozen backbone provides rich representations while lightweight heads train fast.")
+    print("3. Persists checkpoints/storycraft_classifier.pt for downstream automated filtering!")
     print("=" * 70)
 
 

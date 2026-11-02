@@ -4,163 +4,148 @@ Module 07: Post-Training Phase 1 - Instruction Tuning (SFT) & LoRA from Scratch
 Central Anchor: StoryCraft-LLM (The Tiny Story Generator)
 
 This script demonstrates:
-1. Base Model vs Instruct Model behavior.
-2. ChatML formatting and Target-Only Loss Masking (ignoring user prompts with label=-100).
-3. Pure PyTorch LoRA (Low-Rank Adaptation) layer implemented from scratch.
-4. Parameter efficiency: comparing full fine-tuning vs LoRA (<1% trainable parameters).
-5. Weight merging for zero-latency deployment.
+1. Loading the persistent pre-trained base model: checkpoints/storycraft_base.pt.
+2. Converting a text completer into an instruction-following model via ChatML formatting.
+3. Target-only loss masking with ignore_index = -100 on user prompts.
+4. Pure PyTorch LoRA (Low-Rank Adaptation) layers replacing dense attention projections.
+5. Saving the fine-tuned instruction model to checkpoints/storycraft_instruct.pt.
 
 Run this script:
     python3 modules/07_instruction_tuning_sft/demo_sft_lora.py
 """
 
+import os
+import sys
 import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+sys.path.insert(0, repo_root)
+from storycraft import StoryTokenizer, StoryCraftLM
 
-# ============================================================================
-# 1. Pure PyTorch LoRA Layer from Scratch
-# ============================================================================
+
 class LoRALinear(nn.Module):
     """
-    Low-Rank Adaptation (LoRA) linear layer (Hu et al., 2021).
+    Pure PyTorch Low-Rank Adaptation (LoRA) layer (Hu et al., 2021).
     W = W_0 + (alpha / r) * (B @ A)
-    where:
-      W_0: Frozen pre-trained weight [out_features, in_features]
-      A:   Trainable low-rank matrix [rank, in_features] ~ N(0, 1/r)
-      B:   Trainable low-rank matrix [out_features, rank] = 0 (so Delta W starts at 0)
     """
-    def __init__(self, in_features: int, out_features: int, rank: int = 4, alpha: float = 16.0):
+    def __init__(self, base_linear: nn.Linear, rank: int = 4, alpha: float = 16.0):
         super().__init__()
-        self.in_features = in_features
-        self.out_features = out_features
+        self.in_features = base_linear.in_features
+        self.out_features = base_linear.out_features
         self.rank = rank
         self.scaling = alpha / rank
 
-        # 1. Pretrained base weight (Frozen)
-        self.base_weight = nn.Parameter(torch.randn(out_features, in_features) * 0.02, requires_grad=False)
+        # Freeze base linear layer
+        self.base_weight = nn.Parameter(base_linear.weight.data.clone(), requires_grad=False)
 
-        # 2. Trainable Low-Rank Adapters
-        self.lora_A = nn.Parameter(torch.empty(rank, in_features))
-        self.lora_B = nn.Parameter(torch.zeros(out_features, rank))  # Initialized to zero!
-
-        # Initialize A with standard normal
+        # Trainable low-rank decomposition matrices
+        self.lora_A = nn.Parameter(torch.empty(rank, self.in_features))
+        self.lora_B = nn.Parameter(torch.zeros(self.out_features, rank))  # Zero initialized
         nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: [batch, seq_len, in_features]
-        base_out = F.linear(x, self.base_weight)  # Frozen forward pass
-        # Low-rank forward: (x @ A.T) @ B.T * scaling
+        base_out = F.linear(x, self.base_weight)
         lora_out = (x @ self.lora_A.t()) @ self.lora_B.t() * self.scaling
         return base_out + lora_out
 
     def merge_weights(self) -> torch.Tensor:
-        """
-        Merge Delta W into base_weight for zero-latency inference.
-        """
-        merged = self.base_weight.data + (self.lora_B @ self.lora_A) * self.scaling
-        return merged
+        return self.base_weight.data + (self.lora_B @ self.lora_A) * self.scaling
 
 
-# ============================================================================
-# 2. ChatML & Target-Only Loss Masking Demonstration
-# ============================================================================
-def demonstrate_prompt_masking():
-    """
-    Demonstrates how target-only masking ensures the model is ONLY trained on the
-    story text, not on predicting the user's prompt!
-    """
-    print("\n2. ChatML Format & Target-Only Loss Masking:")
-    print("   In Supervised Fine-Tuning, we format conversations using role tags:")
-
-    chatml_lines = [
-        "<|im_start|>system",
-        "You are a kind storyteller.<|im_end|>",
-        "<|im_start|>user",
-        "Write a story about a dragon who loves cookies.<|im_end|>",
-        "<|im_start|>assistant",
-        "Once upon a time, Barnaby the dragon baked sweet cookies...<|im_end|>"
-    ]
-    print("   --- Formatted ChatML Dialogue ---")
-    for line in chatml_lines:
-        print("   " + line)
-
-    # Simulated token sequences
-    tokens = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
-    # Say tokens 0..7 are system/user prompt, tokens 8..11 are assistant story
-    prompt_len = 8
-
-    # Create target labels with -100 for user prompt
-    labels = list(tokens)
-    for i in range(prompt_len):
-        labels[i] = -100  # PyTorch ignore_index
-
-    print("\n   --- Masked Training Target Vector ---")
-    print(f"   Input Token IDs: {tokens}")
-    print(f"   Target Labels:   {labels}")
-    print("   Notice: -100 indicates PyTorch CrossEntropyLoss will ignore these tokens!")
-    print("   The model receives zero gradient penalty for how the prompt was worded.")
-
-
-# ============================================================================
-# 3. Demonstration Runner
-# ============================================================================
 def main():
     print("=" * 70)
     print("💬 MODULE 07: INSTRUCTION TUNING (SFT) & LoRA FROM SCRATCH")
     print("=" * 70)
 
-    # 1. Base Model vs Instruct Model
-    print("\n1. Base Model vs. Instruct Model:")
-    print("   Prompt: 'Write a story about a frog who wants to fly.'")
-    print("   - Untuned Base Model: 'Write a story about a duck. 3. Write a poem.'")
-    print("   - Instruct Model:     'Once upon a lily pad, Freddie the frog looked at the birds...'")
+    chk_dir = os.path.join(repo_root, "checkpoints")
+    tok_path = os.path.join(chk_dir, "tokenizer.pkl")
+    base_path = os.path.join(chk_dir, "storycraft_base.pt")
+    out_instruct_path = os.path.join(chk_dir, "storycraft_instruct.pt")
 
-    # 2. Prompt Masking
-    demonstrate_prompt_masking()
+    # 1. Load Pre-trained Base Checkpoint from Module 04
+    print("\n1. Loading Base Model Checkpoint:")
+    if os.path.exists(tok_path) and os.path.exists(base_path):
+        tokenizer = StoryTokenizer.from_pretrained(tok_path)
+        ckpt = torch.load(base_path, map_location="cpu", weights_only=False)
+        model = StoryCraftLM(**ckpt["config"])
+        model.load_state_dict(ckpt["model_state_dict"])
+        print(f"   ✓ Loaded base checkpoint from: {base_path}")
+    else:
+        tokenizer = StoryTokenizer(target_vocab_size=128)
+        model = StoryCraftLM(vocab_size=128, d_model=64, n_layers=2, n_heads=2)
 
-    # 3. LoRA from Scratch
-    print("\n3. Testing LoRA (Low-Rank Adaptation) Layer:")
-    d_model = 256
-    rank = 4
-    alpha = 16.0
+    # 2. Freeze all base parameters and attach LoRA Adapters
+    print("\n2. Applying LoRA to Transformer Blocks (Rank r=4):")
+    for param in model.parameters():
+        param.requires_grad = False
+    total_base_params = sum(p.numel() for p in model.parameters())
+    
+    lora_layers = []
+    for i, block in enumerate(model.blocks):
+        # Replace q_proj with LoRALinear
+        block.attn.q_proj = LoRALinear(block.attn.q_proj, rank=4, alpha=16.0)
+        lora_layers.append(block.attn.q_proj)
 
-    lora_layer = LoRALinear(in_features=d_model, out_features=d_model, rank=rank, alpha=alpha)
+    trainable_lora_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"   Total Base Model Parameters: {total_base_params:,}")
+    print(f"   Trainable LoRA Parameters:   {trainable_lora_params:,} ({trainable_lora_params / total_base_params:.1%})")
 
-    # Parameter counts
-    base_params = lora_layer.base_weight.numel()
-    lora_params = lora_layer.lora_A.numel() + lora_layer.lora_B.numel()
+    # 3. Instruction SFT Data with Target-Only Masking
+    print("\n3. Simulating SFT on ChatML Story Instructions:")
+    chatml_prompt = (
+        "<|im_start|>system\nYou are a friendly storyteller.<|im_end|>\n"
+        "<|im_start|>user\nTell a story about sharing sweet cookies.<|im_end|>\n"
+        "<|im_start|>assistant\n"
+    )
+    story_response = "Sparky the dragon baked warm cookies and shared them with Lily and Barnaby.<|im_end|>"
 
-    print(f"   Base Linear Layer parameters (Frozen): {base_params:,}")
-    print(f"   LoRA Adapter parameters (Trainable):   {lora_params:,} (Rank r={rank})")
-    print(f"   Parameter Reduction: Trainable count is only {lora_params / base_params:.1%} of full layer!")
+    prompt_ids = tokenizer.encode(chatml_prompt, add_special_tokens=False)
+    resp_ids = tokenizer.encode(story_response, add_special_tokens=False)
+    full_ids = prompt_ids + resp_ids
 
-    # 4. Verify Forward Pass & Zero-Initialization
-    dummy_x = torch.randn(2, 8, d_model)
-    with torch.no_grad():
-        out_init = lora_layer(dummy_x)
-        out_base_only = F.linear(dummy_x, lora_layer.base_weight)
+    # Mask user prompt with -100
+    labels = [-100] * len(prompt_ids) + resp_ids
+    print(f"   Prompt tokens ({len(prompt_ids)}): labeled -100 (Zero loss on user questions)")
+    print(f"   Assistant tokens ({len(resp_ids)}): active cross-entropy gradients")
 
-    diff = (out_init - out_base_only).abs().max().item()
-    print("\n4. Verifying Zero-Initialization:")
-    print(f"   Max difference between LoRA output and Base output at start: {diff:.6f}")
-    print("   (At initialization, LoRA matrix B is zeros, ensuring model behavior starts unchanged!)")
+    # 4. Run SFT Fine-Tuning Step
+    optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=2e-4)
+    loss_fn = nn.CrossEntropyLoss(ignore_index=-100)
 
-    # 5. Weight Merging
-    print("\n5. Weight Merging for Deployment:")
-    merged_weight = lora_layer.merge_weights()
-    print(f"   Merged Weight Shape: {merged_weight.shape} (Standard linear layer, zero extra latency at inference!)")
+    x = torch.tensor([full_ids[:-1]], dtype=torch.long)
+    y = torch.tensor([labels[1:]], dtype=torch.long)
+
+    model.train()
+    optimizer.zero_grad()
+    logits, _ = model(x)
+    loss = loss_fn(logits.view(-1, model.vocab_size), y.view(-1))
+    loss.backward()
+    optimizer.step()
+    print(f"   SFT Optimization Step Completed: Target Loss = {loss.item():.4f}")
+
+    # 5. Persist Instruction-Tuned Checkpoint
+    torch.save({
+        "model_state_dict": model.state_dict(),
+        "config": {
+            "vocab_size": model.vocab_size,
+            "d_model": model.d_model,
+            "n_layers": model.n_layers,
+            "n_heads": model.n_heads
+        },
+        "stage": "instruction_tuned_sft"
+    }, out_instruct_path)
+    print(f"\n4. Persistent Checkpoint Saved:")
+    print(f"   ✓ Saved fine-tuned instruction model to: {out_instruct_path}")
 
     print("\n" + "=" * 70)
     print("💡 KEY PEDAGOGICAL TAKEAWAYS:")
     print("=" * 70)
-    print("1. Target-only loss masking is essential for conversational instruction following.")
-    print("2. LoRA enables modular adapters: you can keep one 8.5M base model and swap")
-    print("   tiny ~45k parameter LoRA weights for Bedtime Stories, Adventure Stories, etc.")
-    print("3. Merged LoRA weights run at 100% full inference speed without extra layers.")
-    print("👉 Next: Module 08 aligns model morals and endings using Direct Preference Optimization (DPO)!")
+    print("1. Module 07 loads checkpoints/storycraft_base.pt and updates <1% weights via LoRA.")
+    print("2. Saves checkpoints/storycraft_instruct.pt, which Module 08 directly uses as")
+    print("   the reference model for DPO preference alignment!")
     print("=" * 70)
 
 

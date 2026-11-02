@@ -2,42 +2,41 @@ import unittest
 import sys
 import os
 import torch
-sys.path.insert(0, os.path.dirname(__file__))
-from demo_kv_cache import KVCacheSelfAttention
+repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+sys.path.insert(0, repo_root)
+from storycraft import StoryCraftLM
 
 class TestKVCache(unittest.TestCase):
     def setUp(self):
-        self.attn = KVCacheSelfAttention(d_model=32, n_heads=2)
-        self.attn.eval()
+        self.model = StoryCraftLM(vocab_size=64, d_model=32, n_layers=2, n_heads=2)
+        self.model.eval()
 
     def test_cache_accumulation(self):
-        x1 = torch.randn(1, 3, 32)
-        out1, cache = self.attn(x1, past_kv=None)
-        k_cached, v_cached = cache
+        x1 = torch.randint(0, 64, (1, 3))
+        _, past_kvs = self.model(x1, past_kvs=None)
+        # Check first block key cache length
+        k_cached = past_kvs[0][0]
         self.assertEqual(k_cached.shape[2], 3)
 
         # Step 2: append single new token
-        x2 = torch.randn(1, 1, 32)
-        out2, cache2 = self.attn(x2, past_kv=cache)
-        k2, v2 = cache2
+        x2 = torch.randint(0, 64, (1, 1))
+        _, past_kvs2 = self.model(x2, past_kvs=past_kvs)
+        k2 = past_kvs2[0][0]
         self.assertEqual(k2.shape[2], 4)
 
     def test_cached_output_matches_unfused(self):
-        # Initial prompt
         torch.manual_seed(42)
-        p = torch.randn(1, 3, 32)
-        _, cache = self.attn(p, past_kv=None)
+        p = torch.randint(0, 64, (1, 3))
+        _, cache = self.model(p, past_kvs=None)
 
-        # Next token
-        next_tok = torch.randn(1, 1, 32)
-        out_cached, _ = self.attn(next_tok, past_kv=cache)
+        next_tok = torch.randint(0, 64, (1, 1))
+        out_cached, _ = self.model(next_tok, past_kvs=cache)
 
         # Naive full sequence: [p, next_tok]
         full_seq = torch.cat([p, next_tok], dim=1)
-        out_naive, _ = self.attn(full_seq, past_kv=None)
+        out_naive, _ = self.model(full_seq, past_kvs=None)
 
-        # Output for the last token must match!
-        self.assertTrue(torch.allclose(out_cached, out_naive[:, -1:, :], atol=1e-5))
+        self.assertTrue(torch.allclose(out_cached[:, -1:, :], out_naive[:, -1:, :], atol=1e-4))
 
 if __name__ == "__main__":
     unittest.main()

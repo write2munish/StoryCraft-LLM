@@ -12,10 +12,6 @@ env/
 ENV/
 .venv/
 
-# PyTorch Checkpoints & Cache
-*.pt
-*.bin
-*.safetensors
-checkpoints/
+# Cache directories
 .cache/
 .pytest_cache/

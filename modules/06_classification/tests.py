@@ -2,12 +2,16 @@ import unittest
 import sys
 import os
 import torch
+repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+sys.path.insert(0, repo_root)
 sys.path.insert(0, os.path.dirname(__file__))
+from storycraft import StoryCraftLM
 from demo_story_classifier import StoryClassifier
 
 class TestStoryClassifier(unittest.TestCase):
     def setUp(self):
-        self.model = StoryClassifier(vocab_size=100, d_model=32, num_genres=4)
+        base_model = StoryCraftLM(vocab_size=100, d_model=32, n_layers=2, n_heads=2)
+        self.model = StoryClassifier(base_model, num_genres=4, num_safety=2)
 
     def test_output_shapes(self):
         x = torch.randint(0, 100, (2, 10))
@@ -17,9 +21,8 @@ class TestStoryClassifier(unittest.TestCase):
 
     def test_freezing_backbone(self):
         self.model.freeze_backbone()
-        # Embeddings and transformer layers should not require grad
-        self.assertFalse(self.model.tok_embed.weight.requires_grad)
-        # Classification heads should still require grad
+        for p in self.model.base_model.parameters():
+            self.assertFalse(p.requires_grad)
         self.assertTrue(self.model.genre_head.weight.requires_grad)
         self.assertTrue(self.model.safety_head.weight.requires_grad)
 

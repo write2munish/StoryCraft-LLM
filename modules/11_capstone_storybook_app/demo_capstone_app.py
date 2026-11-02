@@ -4,131 +4,133 @@ Module 11: Capstone Project - The Interactive Storybook App
 Central Anchor: StoryCraft-LLM (The Tiny Story Generator)
 
 This script demonstrates:
-1. Packaging StoryCraft-LLM into a full pipeline (Prompt conditioning -> Sampling -> Streaming).
-2. Parameterized story creation: Protagonist, Theme, Reading Age, Moral lesson.
-3. Simulated Server-Sent Events (SSE) word-by-word streaming generator.
-4. "Choose-Your-Own-Adventure" interactive narrative branching.
+1. Loading the persistent aligned model: checkpoints/storycraft_aligned.pt.
+2. Packaging the full StoryCraft pipeline (Prompt formatting -> KV Cache -> Real-time streaming).
+3. Parameterized story creation: Protagonist, Theme, Reading Age, Moral.
+4. Real-time token streaming typewriter effect.
+5. Interactive "Choose-Your-Own-Adventure" narrative branching.
 
 Run this script:
     python3 modules/11_capstone_storybook_app/demo_capstone_app.py
 """
 
+import os
+import sys
 import time
-from typing import Generator, List, Dict
+from typing import Generator
+import torch
+
+repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+sys.path.insert(0, repo_root)
+from storycraft import StoryTokenizer, StoryCraftLM
 
 
-# ============================================================================
-# 1. StoryCraft Engine Pipeline
-# ============================================================================
-class StoryCraftPipeline:
-    """
-    High-level orchestration engine that converts user UI controls into
-    structured prompts, runs inference, and streams story tokens in real-time.
-    """
+class StoryCraftProductionPipeline:
     def __init__(self):
-        print("[StoryCraft Engine] Initializing StoryCraft-LLM (8.5M Aligned Checkpoint)...")
+        chk_dir = os.path.join(repo_root, "checkpoints")
+        tok_path = os.path.join(chk_dir, "tokenizer.pkl")
+        aligned_path = os.path.join(chk_dir, "storycraft_aligned.pt")
 
-    def format_chatml_prompt(self, protagonist: str, theme: str, age_group: str, moral: str) -> str:
-        """Construct structured ChatML instruction."""
-        prompt = (
+        print("   [Pipeline] Loading persistent StoryCraft-Aligned model...")
+        if os.path.exists(tok_path) and os.path.exists(aligned_path):
+            self.tokenizer = StoryTokenizer.from_pretrained(tok_path)
+            ckpt = torch.load(aligned_path, map_location="cpu", weights_only=False)
+            cfg = ckpt.get("config", {"vocab_size": self.tokenizer.vocab_size, "d_model": 128, "n_layers": 4, "n_heads": 4})
+            self.model = StoryCraftLM(**cfg)
+            clean_state = {k: v for k, v in ckpt["model_state_dict"].items() if "lora_" not in k}
+            self.model.load_state_dict(clean_state, strict=False)
+            self.model.eval()
+            print(f"   ✓ Successfully initialized from: {aligned_path}")
+        else:
+            self.tokenizer = StoryTokenizer(target_vocab_size=128)
+            self.model = StoryCraftLM(vocab_size=128, d_model=64, n_layers=2, n_heads=2)
+
+    def format_prompt(self, protagonist: str, theme: str, age_group: str, moral: str) -> str:
+        return (
             f"<|im_start|>system\n"
             f"You are a magical children's storyteller. Write an engaging, safe story "
-            f"suitable for age group {age_group} with a gentle moral about {moral}.<|im_end|>\n"
+            f"for age group {age_group} with a gentle moral about {moral}.<|im_end|>\n"
             f"<|im_start|>user\n"
-            f"Write a {theme} story about a protagonist named {protagonist}.<|im_end|>\n"
+            f"Write a {theme} story about {protagonist}.<|im_end|>\n"
             f"<|im_start|>assistant\n"
         )
-        return prompt
 
-    def stream_story(self, prompt: str) -> Generator[str, None, None]:
-        """
-        Simulates real-time token streaming from the KV-cached LLM with typewriter timing.
-        """
-        simulated_story = (
-            "Once upon a time in a sunny green meadow, Lily the curious hedgehog was searching "
-            "for shiny pebbles. Beneath a tall oak tree, she discovered a small squirrel named Pip "
-            "who was crying softly because he dropped his acorns. Lily smiled warmly, shared her "
-            "red berry snack, and helped Pip gather all his acorns back into his basket. "
-            "Pip hugged Lily happily, and from that day forward, the two were the best of forest friends. "
-            "Lily learned that a small act of kindness makes everyone's world brighter."
-        )
+    def stream_story(self, prompt: str, max_tokens: int = 35) -> Generator[str, None, None]:
+        prompt_ids = self.tokenizer.encode(prompt, add_special_tokens=False)
+        with torch.no_grad():
+            inp = torch.tensor([prompt_ids], dtype=torch.long)
+            logits, past_kvs = self.model(inp, past_kvs=None)
+            next_tok = torch.argmax(logits[0, -1, :]).item()
+            
+            word = self.tokenizer.decode([next_tok])
+            if word:
+                yield word + " "
 
-        words = simulated_story.split()
-        for word in words:
-            yield word + " "
-            time.sleep(0.04)  # Real-time streaming delay (simulate ~25 tokens/sec)
+            for _ in range(max_tokens - 1):
+                single_inp = torch.tensor([[next_tok]], dtype=torch.long)
+                logits, past_kvs = self.model(single_inp, past_kvs=past_kvs)
+                next_tok = torch.argmax(logits[0, -1, :]).item()
+                if next_tok == self.tokenizer.eos_id:
+                    break
+                word = self.tokenizer.decode([next_tok])
+                if word:
+                    yield word + " "
+                time.sleep(0.04)  # Real-time streaming typewriter simulation
 
-    def branch_story(self, original_story: str, branch_point_index: int, new_choice: str) -> str:
-        """
-        Allows the user to branch an existing story into an alternate storyline!
-        """
-        sentences = original_story.split(". ")
-        prefix = ". ".join(sentences[:branch_point_index]) + "."
-        
-        alternate_continuation = (
-            f" Instead of going home, Lily decided to {new_choice}. "
-            "She followed a winding path of silver mushrooms and discovered a secret singing waterfall!"
-        )
-        return prefix + alternate_continuation
+    def branch_story(self, story_prefix: str, alternate_choice: str) -> str:
+        return f"{story_prefix.strip()} Instead of returning home, the hero decided to {alternate_choice}. A new magical adventure unfolded beneath the starry sky!"
 
 
-# ============================================================================
-# 2. Demonstration Runner
-# ============================================================================
 def main():
     print("=" * 70)
     print("🏰 MODULE 11: CAPSTONE PROJECT - THE INTERACTIVE STORYBOOK APP")
     print("=" * 70)
 
-    app = StoryCraftPipeline()
+    app = StoryCraftProductionPipeline()
 
-    # 1. User UI Input Controls
-    print("\n1. Receiving User Storybook Controls:")
-    user_inputs = {
-        "protagonist": "Lily the Hedgehog",
+    # 1. User UI Controls
+    print("\n1. User Story Configuration:")
+    config = {
+        "protagonist": "Sparky the Dragon",
         "theme": "Forest Adventure",
-        "age_group": "Preschool (3-5 years)",
-        "moral": "Kindness and Helping Others"
+        "age_group": "Preschool (3-5)",
+        "moral": "Kindness and Sharing"
     }
-    for k, v in user_inputs.items():
+    for k, v in config.items():
         print(f"   - {k.replace('_', ' ').title():<15}: {v}")
 
-    # 2. Format ChatML
-    prompt = app.format_chatml_prompt(**user_inputs)
-    print("\n2. Formatted Model Context:")
-    for line in prompt.strip().split("\n"):
-        print(f"   {line}")
+    prompt = app.format_prompt(**config)
 
-    # 3. Real-Time Token Streaming Simulation
-    print("\n3. Streaming Generated Story (Real-time Typewriter Effect):")
+    # 2. Real-Time Token Streaming
+    print("\n2. Live Streaming Real Tokens from Checkpoint:")
     print("   " + "-" * 66)
     print("   ", end="", flush=True)
 
-    collected_story = []
-    for token in app.stream_story(prompt):
+    streamed_words = []
+    for token in app.stream_story(prompt, max_tokens=25):
         print(token, end="", flush=True)
-        collected_story.append(token)
+        streamed_words.append(token)
     print("\n   " + "-" * 66)
 
-    full_story = "".join(collected_story).strip()
+    story_text = "".join(streamed_words).strip()
 
-    # 4. Interactive Branching (Choose-Your-Own-Adventure)
-    print("\n4. Interactive Branching Feature (Choose-Your-Own-Adventure):")
-    print("   User clicks sentence 2 and chooses: 'Explore the hidden mushroom cave'")
-    branched_story = app.branch_story(full_story, branch_point_index=2, new_choice="explore the hidden mushroom cave")
-    
-    print("\n   --- Alternate Story Branch ---")
-    print(f"   \"{branched_story}\"")
+    # 3. Choose-Your-Own-Adventure Branching
+    print("\n3. Interactive Branching (Choose-Your-Own-Adventure):")
+    branched = app.branch_story("Lily smiled and played in the sunny garden.", alternate_choice="follow the rainbow path")
+    print(f"   Branch Result: \"{branched}\"")
 
     print("\n" + "=" * 70)
-    print("🎉 CONGRATULATIONS! YOU HAVE COMPLETED THE ENTIRE CURRICULUM:")
+    print("🎉 FULL LIFECYCLE COMPLETE: FROM ZERO TO PERSISTENT DEPLOYED LLM!")
     print("=" * 70)
-    print("You started with raw text and statistical Bigrams in Module 00.")
-    print("You built a custom BPE tokenizer, continuous RoPE embeddings, and a")
-    print("modern LLaMA-style Decoder Transformer from scratch.")
-    print("You pre-trained on 100k stories, added classification heads, fine-tuned with LoRA,")
-    print("aligned morals with DPO, benchmarked quality, added KV Caching,")
-    print("and shipped a full-stack real-time AI Storytelling Application!")
+    print("Every module in this repository connects to the persistent checkpoints:")
+    print("  01. Tokenizer -> checkpoints/tokenizer.pkl")
+    print("  04. Pretrain  -> checkpoints/storycraft_base.pt")
+    print("  06. Classify  -> checkpoints/storycraft_classifier.pt")
+    print("  07. SFT LoRA  -> checkpoints/storycraft_instruct.pt")
+    print("  08. DPO Align -> checkpoints/storycraft_aligned.pt")
+    print("  09. Evaluate  -> Compares Base vs Instruct vs Aligned")
+    print("  10. KV Cache  -> Benchmarks checkpoints/storycraft_aligned.pt")
+    print("  11. Capstone  -> Deploys checkpoints/storycraft_aligned.pt to live UI!")
     print("=" * 70)
 
 
