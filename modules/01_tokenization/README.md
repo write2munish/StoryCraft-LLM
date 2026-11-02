@@ -1,43 +1,66 @@
 # 🔤 Module 01: Data Pipeline & Tokenization
 
-> **Central Anchor in this Module:** Training a Byte-Pair Encoding (BPE) tokenizer specifically on children's stories, constructing vocabulary dictionaries, and packaging story text into a PyTorch DataLoader.
+> **Central Anchor:** Training a Byte-Pair Encoding (BPE) subword tokenizer specifically on children's stories, building vocabulary mappings, and packaging text into PyTorch causal training batches.
 
 ---
 
-## 🎯 Learning Objectives
-1. Understand the tradeoffs between Character-level, Word-level, and Subword-level tokenization.
-2. Build a Byte-Pair Encoding (BPE) tokenizer from scratch.
-3. Understand special tokens (`<|bos|>`, `<|eos|>`, `<|pad|>`, `<|unk|>`).
-4. Build a PyTorch `StoryDataset` that creates sliding causal training chunks with shifted targets:
-   $$x = [t_1, t_2, \dots, t_{T-1}], \quad y = [t_2, t_3, \dots, t_T]$$
+## 🎯 What to Expect
+- **What You Will Build & Run:** You will execute `demo_tokenization.py`, which implements an end-to-end Byte-Pair Encoding (BPE) algorithm from scratch and formats text into PyTorch training tensors.
+- **What You Will See:** The terminal displays the iterative merge process (e.g. merging `'l'` + `'i'` $\to$ `'li'`, then `'li'` + `'ly'` $\to$ `'lily'`), encodes sample story sentences into integer token IDs, decodes them back to English, and displays causal input-target training pairs ($x$ vs $y$).
+- **What You Will Observe:** You will see how subword tokenization prevents out-of-vocabulary (`<UNK>`) errors while compressing raw character streams into compact sequences.
+- **Run Command:**
+  ```bash
+  python3 modules/01_tokenization/demo_tokenization.py
+  ```
+
+---
+
+## 💡 The Concept Explained Simply
+Computers cannot read letters, words, or sentences—they can only do math on numbers. But how should we translate human text into numbers?
+- **Option 1: Character-by-character (`'l'`, `'i'`, `'l'`, `'y'`).** The vocabulary is tiny (26 letters), but words become long sequences. A 300-word children's story turns into 1,800 characters, making attention calculations extremely slow and expensive.
+- **Option 2: Whole words (`"lily"`, `"played"`, `"garden"`).** The sequences are short, but the vocabulary explodes. If the model sees `"baked"` and `"baking"`, it treats them as completely separate words. If a child enters a typo or rare word, the model crashes with an Unknown Token (`<UNK>`) error!
+- **Option 3: The Goldilocks Solution — Byte-Pair Encoding (BPE).** BPE starts with individual letters and iteratively merges the most frequent pairs into subwords. Common words get their own ID (`"dragon"` $\to$ `42`), while rare words are broken into understandable pieces (`"un"` + `"friendly"` $\to$ `[104, 88]`). No word is ever unknown, and sequence lengths stay short!
 
 ---
 
 ## 🔬 Core Theory: Byte-Pair Encoding (BPE)
-Computers cannot read text directly; they process numbers (token IDs).
+BPE constructs a subword vocabulary through frequency-driven iterative compression:
+1. Initialize the vocabulary with all unique base bytes (characters) in the training text.
+2. Count the frequency of every adjacent symbol pair across the corpus.
+3. Identify the most frequent pair $(c_1, c_2)$ and merge it into a new composite symbol $c_{12}$.
+4. Add $c_{12}$ to the vocabulary and replace all occurrences of $(c_1, c_2)$ in the corpus.
+5. Repeat steps 2–4 until reaching the target vocabulary size $V$ (e.g., $V = 256$ in StoryCraft).
 
-### The BPE Algorithm:
-1. Start with the individual byte representations of all characters in the training corpus (vocabulary size = 256).
-2. Count the frequency of every consecutive pair of tokens across the corpus.
-3. Find the most frequent pair (e.g., `('t', 'h')` $\to$ `'th'`).
-4. Merge that pair into a new single token and append it to the vocabulary.
-5. Repeat steps 2–4 until reaching the target vocabulary size $V$ (e.g., $V = 4,096$).
+### Causal Shifted Pairs ($x$ vs $y$):
+Autoregressive training is self-supervised. We construct input $x$ and target $y$ by shifting the sequence by exactly 1 position:
+$$x = [t_1, t_2, \dots, t_{T-1}], \quad y = [t_2, t_3, \dots, t_T]$$
+At position $t$, the model takes tokens $x_{1:t}$ and is trained to predict $y_t = x_{t+1}$.
 
-### Causal Batching:
-For autoregressive generation, we train the model to predict the *next* token at every position:
+---
+
+## 💻 File Structure & Runnable Components
 ```
-Sequence:  ["Once", "upon", "a", "time", "there", "was"]
-Input (x): ["Once", "upon", "a", "time", "there"]
-Target(y): ["upon", "a", "time", "there", "was"]
+modules/01_tokenization/
+├── README.md               # This module guide
+├── demo_tokenization.py    # Runnable BPE tokenizer & PyTorch DataLoader demo
+└── tests.py                # 4-test unit suite verifying merges and encode/decode
 ```
 
 ---
 
-## 💻 Lab Exercises
-1. `bpe_tokenizer.py`:
-   - Implement `train(text, vocab_size=4096)`
-   - Implement `encode(text) -> list[int]`
-   - Implement `decode(tokens) -> str`
-2. `dataset.py`:
-   - Implement `StoryDataset(tokens, max_seq_len=256)`
-   - Create PyTorch `DataLoader(batch_size=32, shuffle=True)`
+## 🔑 Key Pedagogical Takeaways
+1. **Subword Sweet Spot:** BPE eliminates out-of-vocabulary errors while compressing text into manageable sequence lengths.
+2. **Control Tokens:** Special tokens like `<|bos|>`, `<|eos|>`, and `<|pad|>` provide structural boundaries for prompts, generation termination, and batch alignment.
+3. **Self-Supervision via Shifting:** Next-token prediction requires no manual labels; shifting token sequences by 1 creates ground-truth training targets automatically.
+4. **Bridge to Module 02:** Discrete token integers (`[43, 108]`) cannot be multiplied or passed through neural layers; Module 02 maps them into continuous vector geometry.
+
+---
+
+## 🧪 Running the Code & Unit Tests
+```bash
+# Run the interactive demonstration
+python3 modules/01_tokenization/demo_tokenization.py
+
+# Run the automated unit tests
+python3 modules/01_tokenization/tests.py
+```

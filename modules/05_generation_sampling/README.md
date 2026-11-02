@@ -1,43 +1,84 @@
-# 🎲 Module 05: Generation & Sampling Mechanics
+# 🎲 Module 05: Generation, Sampling & Foundation Model Weight Loading
 
-> **Central Anchor in this Module:** Taking our pre-trained `StoryCraftLM` base model and building a versatile CLI storytelling engine with Temperature, Top-k, Top-p (nucleus), and repetition penalties.
-
----
-
-## 🎯 Learning Objectives
-1. Understand the autoregressive decoding cycle:
-   $$\text{Prompt} \to \text{Forward Pass} \to \text{Logits} \to \text{Sampling} \to \text{Append Token} \to \text{Repeat}$$
-2. Implement Greedy Decoding and discover its failure modes (stuck in repetitive loops, dull text).
-3. Implement Temperature scaling, Top-$k$ filtering, Top-$p$ (Nucleus) sampling, and Min-$p$ sampling.
-4. Implement repetition penalties to discourage infinite repetition traps.
+> **Central Anchor:** Loading the persistent foundation checkpoint `checkpoints/storycraft_base.pt`, implementing autoregressive decoding algorithms, and mastering external open-weight state-dict translation.
 
 ---
 
-## 🔬 Core Theory: Sampling Parameters Explained
-
-Given logits vector $z \in \mathbb{R}^V$:
-
-### 1. Temperature ($T$)
-Modulates the "sharpness" of the distribution before softmax:
-$$P_i = \frac{\exp(z_i / T)}{\sum_j \exp(z_j / T)}$$
-- **$T \to 0$ (e.g. 0.1):** Almost deterministic (Greedy). Reliable, but prone to loops like `"Lily went to the park and saw a ball. The ball was red. The ball was red."`
-- **$T = 0.7 - 0.8$:** Sweet spot for creative storytelling.
-- **$T > 1.5$:** High entropy; nonsensical vocabulary leaps.
-
-### 2. Top-$k$ Sampling
-Truncates the logits to only the $k$ highest-probability tokens (e.g., $k=40$). Restricts wild low-probability outliers.
-
-### 3. Top-$p$ (Nucleus) Sampling
-Sorts tokens descending by probability and retains the minimal subset whose cumulative sum $\ge p$ (e.g., $p=0.90$). Dynamically broadens the candidate pool when multiple words make sense, and narrows it when the next token is obvious (e.g. after `"Once upon a"` $\to$ `"time"`).
-
-### 4. Repetition Penalty ($\theta \ge 1.0$)
-Penalizes logits for tokens that have already appeared in the generated window:
-$$z_i = \begin{cases} z_i / \theta & \text{if } z_i > 0 \\ z_i \cdot \theta & \text{if } z_i < 0 \end{cases}$$
+## 🎯 What to Expect
+- **What You Will Build & Run:** You will execute `demo_generation_sampling.py`, connecting directly to `checkpoints/storycraft_base.pt` to explore probability distributions and compare 4 distinct generation strategies side-by-side on the same prompt.
+- **What You Will See:** The terminal displays real next-token probabilities (e.g. for prompt `"Lily saw a"`, displaying probabilities for `'red'`, `'little'`, `'green'`), generates continuations across Greedy, Low-Temp, Tuned Nucleus + Repetition Penalty, and High-Temp Chaotic modes, and verifies cross-architecture weight transfer.
+- **What You Will Observe:** You will observe why Greedy decoding loops indefinitely (*"lily played played played"*), how Repetition Penalty breaks loops, and how Temperature controls creativity.
+- **Run Command:**
+  ```bash
+  python3 modules/05_generation_sampling/demo_generation_sampling.py
+  ```
 
 ---
 
-## 💻 Lab Exercises
-- Implement `generate.py`:
-  - Build class `StoryGenerator(model, tokenizer)`
-  - Implement `generate(prompt, max_new_tokens=150, temperature=0.8, top_k=50, top_p=0.9, repetition_penalty=1.1)`
-  - Run side-by-side comparisons of greedy vs temperature-sampled stories.
+## 💡 The Concept Explained Simply
+A trained base model does not produce text directly. At every step, it simply outputs a list of scores (logits) for every word in its vocabulary. How we choose the next word from those scores determines the entire personality and quality of the generated story!
+
+- **Greedy Decoding (argmax):** Always pick the #1 most probable word. While this sounds logical, it is like a writer who always picks the safest, most obvious word. It quickly gets trapped in vicious repetitive loops: *"Lily played with the ball. The ball was red. The ball was red. The ball..."*
+- **Temperature ($T$):** Divides the logits before turning them into probabilities.
+  - *Low Temperature ($T = 0.2$):* Makes high scores higher and low scores zero. The story is rigid and predictable.
+  - *High Temperature ($T = 1.8$):* Flattens the distribution, giving obscure words a high chance. The story becomes chaotic and nonsensical!
+  - *Balanced Temperature ($T = 0.7$):* Fluent, creative, and coherent!
+- **Top-p (Nucleus) Sampling:** Only consider the top words whose cumulative probability adds up to $p$ (e.g. 90%). It dynamically expands when many words make sense and contracts when only one word is obvious.
+- **Repetition Penalty:** Slightly penalizes the probability of any word that has already been generated, breaking repetition traps permanently!
+
+---
+
+## 🔬 Core Theory: Autoregressive Sampling Mechanics
+
+### 1. Temperature Scaling
+$$\text{Softmax}(z / T)_i = \frac{e^{z_i / T}}{\sum_j e^{z_j / T}}$$
+
+### 2. Top-k and Top-p (Nucleus) Filtering
+- **Top-k:** Retains only the $k$ highest logit values; sets all others to $-\infty$.
+- **Top-p:** Sorts logits in descending order and finds the smallest set of tokens whose cumulative probability exceeds $p$:
+  $$\sum_{i \in V^{(p)}} P(w_i) \ge p$$
+
+### 3. Repetition Penalty
+For each token $i$ already generated in the prompt or response:
+$$\tilde{z}_i = \begin{cases} z_i / \text{penalty} & \text{if } z_i > 0 \\ z_i \cdot \text{penalty} & \text{if } z_i \le 0 \end{cases}$$
+
+### 4. Cross-Architecture Weight Mapping
+Foundation model weights (e.g. HuggingFace GPT-2 or LLaMA) can be mapped into custom PyTorch architectures by translating key names and transposing linear projections:
+```
+transformer.wte.weight           ---> tok_embed.weight
+transformer.h.<i>.ln_1.weight   ---> blocks.<i>.norm1.weight
+transformer.h.<i>.attn.c_attn   ---> blocks.<i>.attn.q/k/v_proj
+transformer.ln_f.weight          ---> norm_final.weight
+```
+
+---
+
+## 💻 File Structure & Runnable Components
+```
+modules/05_generation_sampling/
+├── README.md                      # This module guide
+├── generate.py                    # StoryGenerator inference & sampling engine
+├── load_pretrained.py             # Cross-architecture state-dict weight importer
+├── demo_generation_sampling.py    # Runnable comparison of 4 sampling strategies
+└── tests.py                       # 5-test unit suite verifying sampling & weight transfer
+```
+
+---
+
+## 🔑 Key Pedagogical Takeaways
+1. **Sampling Shapes Output:** Model weights provide raw probabilities; decoding hyperparameters (Temperature, Top-p, Penalty) dictate the actual narrative quality.
+2. **Nucleus Sampling Eliminates Bad Tails:** Top-p prevents improbable or offensive tail tokens without artificially restricting vocabulary breadth.
+3. **Repetition Traps are Common in Small LLMs:** Incorporating repetition penalties is essential for models under 1B parameters.
+4. **State-Dict Portability:** Weights are merely named PyTorch tensors; understanding tensor reshaping allows loading billion-parameter open foundation models into custom code.
+5. **Bridge to Module 06:** Instead of generating text, Module 06 repurposes this base model to classify story themes and moderate safety.
+
+---
+
+## 🧪 Running the Code & Unit Tests
+```bash
+# Run the interactive generation & sampling demo
+python3 modules/05_generation_sampling/demo_generation_sampling.py
+
+# Run the automated unit tests
+python3 modules/05_generation_sampling/tests.py
+```
