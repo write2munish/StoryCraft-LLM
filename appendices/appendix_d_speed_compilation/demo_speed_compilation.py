@@ -10,6 +10,12 @@ Run this script:
     python3 appendices/appendix_d_speed_compilation/demo_speed_compilation.py
 """
 
+import os
+import sys
+repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+sys.path.insert(0, repo_root)
+from storycraft import set_seed
+
 import time
 import math
 import torch
@@ -70,6 +76,7 @@ def demonstrate_muon_newton_schulz():
 
 
 def main():
+    set_seed(42)
     print("=" * 70)
     print("⚡ APPENDIX D: TRAINING SPEEDUPS & MODERN OPTIMIZERS")
     print("=" * 70)

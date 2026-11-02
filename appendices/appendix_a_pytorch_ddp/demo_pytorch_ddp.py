@@ -10,6 +10,12 @@ Run this script:
     python3 appendices/appendix_a_pytorch_ddp/demo_pytorch_ddp.py
 """
 
+import os
+import sys
+repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+sys.path.insert(0, repo_root)
+from storycraft import set_seed
+
 import torch
 import torch.nn as nn
 
@@ -75,6 +81,7 @@ def simulate_ddp_allreduce():
 
 
 def main():
+    set_seed(42)
     print("=" * 70)
     print("🛠️ APPENDIX A: PYTORCH PRIMER & DISTRIBUTED DATA PARALLEL (DDP)")
     print("=" * 70)

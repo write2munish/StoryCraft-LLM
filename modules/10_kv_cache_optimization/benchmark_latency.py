@@ -18,7 +18,7 @@ repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 sys.path.insert(0, repo_root)
 sys.path.insert(0, os.path.dirname(__file__))
 
-from storycraft import StoryTokenizer, StoryCraftLM
+from storycraft import StoryTokenizer, StoryCraftLM, set_seed
 from kv_cache import CachedStoryGenerator
 
 
@@ -119,6 +119,7 @@ def get_model_size_mb(model: nn.Module) -> float:
 
 
 def run_benchmarks():
+    set_seed(42)
     chk_dir = os.path.join(repo_root, "checkpoints")
     tok_path = os.path.join(chk_dir, "tokenizer.pkl")
     aligned_path = os.path.join(chk_dir, "storycraft_aligned.pt")

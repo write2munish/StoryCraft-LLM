@@ -1,9 +1,10 @@
 """
-StoryCraft Package: Canonical LLM implementation and tokenizer for StoryCraft-LLM.
+StoryCraft Package: Canonical LLM implementation, tokenizer, and utilities for StoryCraft-LLM.
 """
 
 from .tokenizer import StoryTokenizer
 from .model import StoryCraftLM, RMSNorm, RotaryEmbedding, CausalSelfAttention, SwiGLUMLP, TransformerBlock
+from .utils import set_seed
 
 __all__ = [
     "StoryTokenizer",
@@ -12,5 +13,6 @@ __all__ = [
     "RotaryEmbedding",
     "CausalSelfAttention",
     "SwiGLUMLP",
-    "TransformerBlock"
+    "TransformerBlock",
+    "set_seed"
 ]

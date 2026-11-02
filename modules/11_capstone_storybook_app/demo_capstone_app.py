@@ -22,7 +22,7 @@ import torch
 
 repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 sys.path.insert(0, repo_root)
-from storycraft import StoryTokenizer, StoryCraftLM
+from storycraft import set_seed, StoryTokenizer, StoryCraftLM
 
 
 class StoryCraftProductionPipeline:
@@ -82,6 +82,7 @@ class StoryCraftProductionPipeline:
 
 
 def main():
+    set_seed(42)
     print("=" * 70)
     print("🏰 MODULE 11: CAPSTONE PROJECT - THE INTERACTIVE STORYBOOK APP")
     print("=" * 70)

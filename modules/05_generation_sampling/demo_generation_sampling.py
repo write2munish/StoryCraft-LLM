@@ -26,12 +26,13 @@ repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 sys.path.insert(0, repo_root)
 sys.path.insert(0, os.path.dirname(__file__))
 
-from storycraft import StoryTokenizer, StoryCraftLM
+from storycraft import set_seed, StoryTokenizer, StoryCraftLM
 from generate import StoryGenerator, apply_repetition_penalty, sample_next_token
 from load_pretrained import map_and_load_state_dict
 
 
 def main():
+    set_seed(42)
     print("=" * 70)
     print("🎲 MODULE 05: GENERATION, SAMPLING & WEIGHT MAPPING")
     print("=" * 70)

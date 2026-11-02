@@ -9,6 +9,12 @@ Run this script:
     python3 appendices/appendix_b_gqa_moe/demo_gqa_moe.py
 """
 
+import os
+import sys
+repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+sys.path.insert(0, repo_root)
+from storycraft import set_seed
+
 import math
 import torch
 import torch.nn as nn
@@ -108,6 +114,7 @@ class SparseMoELayer(nn.Module):
 # 3. Demonstration Runner
 # ============================================================================
 def main():
+    set_seed(42)
     print("=" * 70)
     print("🔬 APPENDIX B: FRONTIER ATTENTION & ROUTING (GQA & MoE)")
     print("=" * 70)

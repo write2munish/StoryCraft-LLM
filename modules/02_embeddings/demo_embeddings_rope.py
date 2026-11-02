@@ -14,6 +14,12 @@ Run this script:
     python3 modules/02_embeddings/demo_embeddings_rope.py
 """
 
+import os
+import sys
+repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+sys.path.insert(0, repo_root)
+from storycraft import set_seed
+
 import math
 import torch
 import torch.nn as nn
@@ -74,6 +80,7 @@ class RotaryPositionalEmbedding(nn.Module):
 # 2. Demonstration Runner
 # ============================================================================
 def main():
+    set_seed(42)
     print("=" * 70)
     print("📐 MODULE 02: VECTOR SPACES & ROTARY POSITIONAL EMBEDDINGS (RoPE)")
     print("=" * 70)

@@ -14,6 +14,12 @@ Run this script:
     python3 modules/00_foundations/demo_foundations.py
 """
 
+import os
+import sys
+repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+sys.path.insert(0, repo_root)
+from storycraft import set_seed
+
 import random
 from collections import defaultdict, Counter
 from typing import List, Dict, Tuple
@@ -143,6 +149,7 @@ class TrigramStoryModel:
 # 4. Educational Demonstration Runner
 # ============================================================================
 def main():
+    set_seed(42)
     print("=" * 70)
     print("📖 MODULE 00: FOUNDATIONS OF LANGUAGE MODELING")
     print("=" * 70)

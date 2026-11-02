@@ -15,6 +15,12 @@ Run this script:
     python3 modules/04_pretraining/demo_pretraining_engine.py
 """
 
+import os
+import sys
+repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+sys.path.insert(0, repo_root)
+from storycraft import set_seed
+
 import math
 import torch
 import torch.nn as nn
@@ -60,6 +66,7 @@ class MiniStoryTransformer(nn.Module):
 # 3. Demonstration Runner
 # ============================================================================
 def main():
+    set_seed(42)
     print("=" * 70)
     print("⚡ MODULE 04: THE PRE-TRAINING ENGINE & OPTIMIZATION")
     print("=" * 70)

@@ -23,7 +23,7 @@ import torch.nn.functional as F
 
 repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 sys.path.insert(0, repo_root)
-from storycraft import StoryTokenizer, StoryCraftLM
+from storycraft import set_seed, StoryTokenizer, StoryCraftLM
 
 
 class LoRALinear(nn.Module):
@@ -56,6 +56,7 @@ class LoRALinear(nn.Module):
 
 
 def main():
+    set_seed(42)
     print("=" * 70)
     print("💬 MODULE 07: INSTRUCTION TUNING (SFT) & LoRA FROM SCRATCH")
     print("=" * 70)

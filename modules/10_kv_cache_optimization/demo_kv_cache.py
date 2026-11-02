@@ -24,7 +24,7 @@ repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 sys.path.insert(0, repo_root)
 sys.path.insert(0, os.path.dirname(__file__))
 
-from storycraft import StoryTokenizer, StoryCraftLM
+from storycraft import set_seed, StoryTokenizer, StoryCraftLM
 from kv_cache import CachedStoryGenerator, verify_generation_correctness
 from benchmark_latency import (
     benchmark_sequence_lengths,
@@ -35,6 +35,7 @@ from benchmark_latency import (
 
 
 def main():
+    set_seed(42)
     print("=" * 70)
     print("🏎️ MODULE 10: INFERENCE OPTIMIZATION, KV CACHE & VERIFICATION")
     print("=" * 70)

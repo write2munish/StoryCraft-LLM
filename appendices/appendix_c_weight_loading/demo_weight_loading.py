@@ -10,6 +10,12 @@ Run this script:
     python3 appendices/appendix_c_weight_loading/demo_weight_loading.py
 """
 
+import os
+import sys
+repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+sys.path.insert(0, repo_root)
+from storycraft import set_seed
+
 import torch
 import torch.nn as nn
 
@@ -32,7 +38,7 @@ class SimpleScratchLM(nn.Module):
 
 def create_mock_huggingface_weights(vocab_size=50, d_model=32):
     """Simulates external HuggingFace/GPT style weight dictionary."""
-    torch.manual_seed(123)
+    torch.manual_seed(42)
     hf_weights = {
         "transformer.wte.weight": torch.randn(vocab_size, d_model),
         # In HF GPT-2, Q, K, V are fused into one single matrix of shape [d_model, 3 * d_model]
@@ -66,6 +72,7 @@ def map_hf_to_scratch(hf_weights, target_model):
 
 
 def main():
+    set_seed(42)
     print("=" * 70)
     print("🔄 APPENDIX C: CROSS-ARCHITECTURE WEIGHT IMPORTERS")
     print("=" * 70)
