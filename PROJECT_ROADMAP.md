@@ -12,7 +12,7 @@ Depending on your available time and background, choose one of the three recomme
 
 ```mermaid
 flowchart TD
-    A[Start: Prerequisites Check] --> B{Choose Track}
+    A[Start: Front-Loaded PyTorch Primer] --> B{Choose Track}
     B -->|Academic / Corporate| C[12-Week Master Cohort]
     B -->|Fast-Track Engineers| D[4-Week Deep Dive]
     B -->|Weekend Hackers| E[Self-Paced / Weekend Sprint]
@@ -29,6 +29,7 @@ flowchart TD
 
 | Week | Focus Module | Core Milestone Deliverable |
 | :---: | :--- | :--- |
+| **Prerequisite** | [**PyTorch Primer**](pytorch_primer/) | Master tensor layouts, broadcasting, autograd DAG, and custom modules. |
 | **Week 1** | **Module 00:** Foundations & Language Modeling | Build Bigram/Trigram story generator; document failure modes. |
 | **Week 2** | **Module 01:** Tokenization & Data Pipelines | Train custom BPE tokenizer (4k vocab); build PyTorch data loader. |
 | **Week 3** | **Module 02:** Vector Space & Positional Encodings | Implement Rotary Positional Embeddings (RoPE); visualize vectors. |
@@ -47,6 +48,7 @@ flowchart TD
 ### Track B: 4-Week Fast-Track Bootcamp (Intensive)
 *Best for experienced software engineers and data scientists.*
 
+* **Prerequisite (Tensor Mechanics):** [PyTorch Primer](pytorch_primer/) (Tensors, strides, Autograd DAG, nn.Module)
 * **Week 1 (Architecture & Data):** Modules 00, 01, 02, 03  
   *Deliverable:* Complete PyTorch model forward pass verified on dummy inputs.
 * **Week 2 (Pre-training, Sampling & Weights):** Modules 04, 05  
@@ -93,6 +95,7 @@ Expected training speeds for **100,000 stories (~10M tokens)**:
 
 ## ✅ Instructor & Learner Milestone Verification Checklist
 
+- [ ] **Prerequisite Milestone:** Complete PyTorch Primer; verify memory strides, broadcasting, and autograd DAG in `pytorch_primer/tests.py`.
 - [ ] **Milestone 00:** Understand N-gram probabilities and observe failure modes on story text.
 - [ ] **Milestone 01:** Build BPE tokenizer; verify roundtrip `decode(encode(text)) == text`.
 - [ ] **Milestone 02:** Implement RoPE; verify query-key dot product invariance to relative shift.

@@ -49,6 +49,37 @@ Across the modules, students watch the **exact same model** evolve through disti
 
 ```
 ===================================================================================
+ PREREQUISITE: Front-Loaded PyTorch Primer (Tensor Mechanics & Autograd)
+===================================================================================
+```
+### 🎯 Learning Objectives
+- Master tensor creation, device placement (`cpu`, `cuda`, `mps`), memory layouts, and non-contiguous stride mechanics.
+- Understand zero-copy views (`.view()`, `.reshape()`) and broadcasting rules essential for multi-head attention and RoPE tensors.
+- Demystify Autograd dynamic computation graphs (DAG), reverse-mode automatic differentiation, and `torch.no_grad()`.
+- Construct custom `nn.Module` classes with explicit parameter tracking, registration of persistent buffers (`register_buffer`), and state serialization.
+
+### 🧠 Core Concepts & Theory
+1. **The PyTorch Mental Model:**
+   - Tensors as continuous C/CUDA memory buffers overlaid with multidimensional strides: $\text{index} = \sum_i \text{coord}[i] \times \text{stride}[i]$.
+   - View operations vs memory re-allocation (`.contiguous()`).
+2. **Broadcasting in Modern Attention & RoPE:**
+   - Aligning dimensions: `[1, 1, T, D]` with `[B, H, T, D]` without duplicating memory.
+3. **Autograd DAG & Memory Safety:**
+   - Dynamic graph construction during the forward pass; topological reverse-mode traversal during `.backward()`.
+   - Gradient accumulation vs `.zero_grad(set_to_none=True)`.
+   - Disabling graph tracking during evaluation and inference using `torch.no_grad()` or `torch.inference_mode()`.
+4. **Parameters vs Buffers:**
+   - Learnable weights (`nn.Parameter`) vs non-trainable state like RoPE frequencies or causal masks (`register_buffer`).
+
+### 💻 Hands-on Lab & Verification
+- **Directory:** `pytorch_primer/` (also symlinked as `modules/primer_pytorch`)
+- **Code:** `pytorch_primer/demo_pytorch_primer.py`
+- **Verification:** `pytorch_primer/tests.py` (5 unit tests verifying strides, broadcasting, autograd gradients, no-grad contexts, and registered buffers).
+
+---
+
+```
+===================================================================================
  MODULE 00: Orientation & The Mental Model of Language Modeling
 ===================================================================================
 ```
@@ -417,8 +448,8 @@ Across the modules, students watch the **exact same model** evolve through disti
 
 Inspired by the supplementary research in `LLMs-from-scratch`:
 
-- **Appendix A: PyTorch Essentials & Distributed Data Parallel (DDP)**
-  - Tensors, autograd, and multi-GPU training script (`torch.distributed`).
+- **Appendix A: Distributed Data Parallel (DDP) & Multi-GPU Training**
+  - Multi-GPU scaling, NCCL Ring All-Reduce, gradient synchronization, and launch scripts with `torchrun`.
 - **Appendix B: Frontier Attention Architectures (GQA, MLA, SWA, MoE)**
   - Grouped-Query Attention (GQA), DeepSeek-style Multi-head Latent Attention (MLA), Mistral Sliding Window Attention (SWA), and Mixture of Experts (MoE).
 - **Appendix C: Cross-Architecture Weight Importers**

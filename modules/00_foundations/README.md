@@ -2,6 +2,10 @@
 
 > **Central Anchor:** Building a statistical Bigram and Trigram story generator to understand the mathematical foundations of language modeling and discover where classical statistical methods break down.
 
+> [!TIP]
+> 🚀 **Front-Loaded Prerequisite:**  
+> Before diving into language modeling and neural architecture, review the front-loaded [**PyTorch Primer**](../../pytorch_primer/) (also available at `modules/primer_pytorch`) to master tensor strides, broadcasting, autograd, and GPU acceleration!
+
 ---
 
 ## 🎯 What to Expect

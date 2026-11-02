@@ -37,8 +37,9 @@ Because our domain is constrained to synthetic children's stories (vocabulary of
 
 ```mermaid
 graph TD
+    Primer["Prerequisite: PyTorch Primer (Tensors & Autograd)"] --> M0["00. Foundations & N-Grams"]
     subgraph Phase 1: Foundations & Architecture
-        M0["00. Foundations & N-Grams"] --> M1["01. Tokenization (BPE) & Data Loaders"]
+        M0 --> M1["01. Tokenization (BPE) & Data Loaders"]
         M1 --> M2["02. Embeddings & RoPE Geometry"]
         M2 --> M3["03. Modern Transformer Architecture"]
     end
@@ -67,6 +68,7 @@ graph TD
 
 | Module | Topic | Core Question Answered | Deliverable |
 | :---: | :--- | :--- | :--- |
+| [**PyTorch Primer**](pytorch_primer/) | **PyTorch Primer: Tensors & Autograd** | *How do tensors, strides, autograd, and parameters work?* | Tensor mechanics, zero-copy views, autograd DAG, custom `nn.Module` |
 | [**Module 00**](modules/00_foundations/) | **Foundations & N-Grams** | *What does it mean to model language mathematically?* | Bigram/Trigram story baseline + failure analysis |
 | [**Module 01**](modules/01_tokenization/) | **Tokenization & Data Pipelines** | *How do machines convert raw text into numerical tokens?* | Custom 4k BPE Tokenizer + PyTorch DataLoader |
 | [**Module 02**](modules/02_embeddings/) | **Embeddings & RoPE** | *How do words get meaning and order in vector space?* | Continuous vector spaces + RoPE implementation |
@@ -81,7 +83,7 @@ graph TD
 | [**Module 11**](modules/11_capstone_storybook_app/) | **Capstone Storybook App** | *How do we deploy a real-time AI product?* | Streaming FastAPI backend + interactive Web UI |
 
 ### 🔬 Advanced Appendices
-- [**Appendix A: PyTorch Primer & Distributed Data Parallel (DDP)**](appendices/appendix_a_pytorch_ddp/)
+- [**Appendix A: Distributed Data Parallel (DDP) & Multi-GPU Training**](appendices/appendix_a_pytorch_ddp/)
 - [**Appendix B: Frontier Attention Architectures (GQA, MLA, MoE)**](appendices/appendix_b_gqa_moe/)
 - [**Appendix C: Cross-Architecture Weight Importers (SmolLM / LLaMA / GPT-2)**](appendices/appendix_c_weight_loading/)
 - [**Appendix D: Training Speedups (FlashAttention, `torch.compile`, Muon)**](appendices/appendix_d_speed_compilation/)
