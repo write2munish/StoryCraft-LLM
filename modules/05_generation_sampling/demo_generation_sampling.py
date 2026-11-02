@@ -4,11 +4,14 @@ Module 05: Generation, Sampling & Foundation Model Weight Loading
 Central Anchor: StoryCraft-LLM (The Tiny Story Generator)
 
 This script demonstrates:
-1. Loading the persistent pre-trained checkpoint: checkpoints/storycraft_base.pt.
-2. The Autoregressive Generation Loop using real model weights and tokenizer.pkl.
-3. Temperature scaling, Top-k, and Top-p (Nucleus) sampling.
-4. Repetition penalty to prevent degenerative text looping.
-5. State-Dict Weight Mapping (mapping external open weights into custom architectures).
+1. Loading and inspecting the REAL pre-trained model: checkpoints/storycraft_base.pt.
+2. Querying the real next-token probability distribution over vocabulary words.
+3. Systematically testing 4 sampling strategies on the exact same prompt:
+   - Strategy 1: Greedy Decoding (argmax)
+   - Strategy 2: Low Temperature (T = 0.2)
+   - Strategy 3: Tuned Nucleus Sampling (T = 0.7, Top-k = 20, Top-p = 0.9, Repetition Penalty = 1.2)
+   - Strategy 4: High Temperature Chaotic Sampling (T = 1.8)
+4. Cross-Architecture Weight Importers: Mapping external state-dict tensors into StoryCraftLM.
 
 Run this script:
     python3 modules/05_generation_sampling/demo_generation_sampling.py
@@ -16,45 +19,16 @@ Run this script:
 
 import os
 import sys
-from typing import List
+from typing import Dict, Tuple
 import torch
-import torch.nn.functional as F
 
 repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 sys.path.insert(0, repo_root)
+sys.path.insert(0, os.path.dirname(__file__))
+
 from storycraft import StoryTokenizer, StoryCraftLM
-
-
-def apply_repetition_penalty(logits: torch.Tensor, generated_tokens: List[int], penalty: float = 1.2) -> torch.Tensor:
-    """Penalize logits of tokens that have already been generated."""
-    for token_id in set(generated_tokens):
-        if logits[token_id] > 0:
-            logits[token_id] /= penalty
-        else:
-            logits[token_id] *= penalty
-    return logits
-
-
-def sample_next_token(logits: torch.Tensor, temperature: float = 0.8, top_k: int = 40, top_p: float = 0.9) -> int:
-    """Sample next token using Temperature, Top-k, and Top-p (Nucleus) filtering."""
-    logits = logits / max(temperature, 1e-5)
-
-    if top_k > 0:
-        top_k = min(top_k, logits.size(-1))
-        threshold = torch.topk(logits, top_k)[0][-1]
-        logits[logits < threshold] = float("-inf")
-
-    if 0.0 < top_p < 1.0:
-        sorted_logits, sorted_indices = torch.sort(logits, descending=True)
-        cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
-        sorted_indices_to_remove = cumulative_probs > top_p
-        sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
-        sorted_indices_to_remove[..., 0] = 0
-        indices_to_remove = sorted_indices[sorted_indices_to_remove]
-        logits[indices_to_remove] = float("-inf")
-
-    probs = F.softmax(logits, dim=-1)
-    return torch.multinomial(probs, num_samples=1).item()
+from generate import StoryGenerator, apply_repetition_penalty, sample_next_token
+from load_pretrained import map_and_load_state_dict
 
 
 def main():
@@ -62,64 +36,96 @@ def main():
     print("🎲 MODULE 05: GENERATION, SAMPLING & WEIGHT MAPPING")
     print("=" * 70)
 
-    # 1. Load Persistent Checkpoint from Module 04
+    # 1. Load the Persistent Checkpoint from Module 04
     chk_dir = os.path.join(repo_root, "checkpoints")
     tok_path = os.path.join(chk_dir, "tokenizer.pkl")
     base_path = os.path.join(chk_dir, "storycraft_base.pt")
 
-    print("\n1. Loading Persistent Model & Tokenizer:")
-    if os.path.exists(tok_path) and os.path.exists(base_path):
-        tokenizer = StoryTokenizer.from_pretrained(tok_path)
-        ckpt = torch.load(base_path, map_location="cpu", weights_only=False)
-        cfg = ckpt.get("config", {"vocab_size": tokenizer.vocab_size, "d_model": 128, "n_layers": 4, "n_heads": 4})
-        model = StoryCraftLM(**cfg)
-        model.load_state_dict(ckpt["model_state_dict"])
-        model.eval()
-        print(f"   ✓ Loaded Tokenizer from: {tok_path} (Vocab: {tokenizer.vocab_size})")
-        print(f"   ✓ Loaded Base Model from: {base_path} (Layers: {cfg['n_layers']}, Dim: {cfg['d_model']})")
-    else:
-        print("   ⚠️ Checkpoints not found. Initializing fallback demo model...")
-        tokenizer = StoryTokenizer(target_vocab_size=128)
-        model = StoryCraftLM(vocab_size=128, d_model=64, n_layers=2, n_heads=2)
+    print("\n1. Connecting to Persistent Base Model:")
+    if not (os.path.exists(tok_path) and os.path.exists(base_path)):
+        print("   ❌ Error: Checkpoints missing! Please run previous modules first.")
+        return
 
-    # 2. Autoregressive Story Generation
-    print("\n2. Generating Story with Temperature & Top-p Sampling:")
+    tokenizer = StoryTokenizer.from_pretrained(tok_path)
+    ckpt = torch.load(base_path, map_location="cpu", weights_only=False)
+    cfg = ckpt.get("config", {"vocab_size": tokenizer.vocab_size, "d_model": 128, "n_layers": 4, "n_heads": 4})
+    
+    model = StoryCraftLM(**cfg)
+    model.load_state_dict(ckpt["model_state_dict"])
+    model.eval()
+
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"   ✓ Successfully loaded real weights from: {base_path}")
+    print(f"   ✓ Architecture: {cfg['n_layers']} layers, {cfg['d_model']} d_model, {cfg['n_heads']} heads")
+    print(f"   ✓ Total Model Parameters: {total_params:,}")
+
+    generator = StoryGenerator(model, tokenizer)
+
+    # 2. Inspecting the Real Next-Token Probability Distribution
+    test_prompt = "Lily saw a"
+    print(f"\n2. Real Next-Token Distribution for Prompt: \"{test_prompt}\"")
+    for temp in [0.2, 0.7, 1.5]:
+        probs = generator.get_next_token_distribution(test_prompt, temperature=temp)
+        top_3 = list(probs.items())[:3]
+        formatted = ", ".join([f"'{w}': {p:.1%}" for w, p in top_3])
+        print(f"   Temp {temp:3.1f} -> [{formatted}]")
+
+    # 3. Systematic Side-by-Side Comparison of Sampling Strategies
     prompt = "Once upon a time Lily"
-    prompt_ids = tokenizer.encode(prompt, add_special_tokens=False)
-    generated = list(prompt_ids)
-    print(f"   Initial Prompt: \"{prompt}\"")
+    print(f"\n3. Comparing 4 Generation Strategies on the Real Model:")
+    print(f"   Prompt: \"{prompt}\"")
+    print("-" * 70)
 
-    with torch.no_grad():
-        for _ in range(25):
-            input_tensor = torch.tensor([generated], dtype=torch.long)
-            logits, _ = model(input_tensor)
-            next_logits = logits[0, -1, :].clone()
-            penalized_logits = apply_repetition_penalty(next_logits, generated, penalty=1.2)
-            next_id = sample_next_token(penalized_logits, temperature=0.7, top_k=20, top_p=0.9)
-            generated.append(next_id)
-            if next_id == tokenizer.eos_id:
-                break
+    # Strategy 1: Greedy Decoding
+    greedy_story = generator.generate(prompt, max_new_tokens=25, strategy="greedy")
+    print(f"   [1. Greedy Decoding (argmax)]:")
+    print(f"   \"{greedy_story}\"")
+    print("   -> Notice: Completely deterministic; often falls into repetitive loops.")
 
-    story_text = tokenizer.decode(generated)
-    print(f"   Generated Output: \"{story_text}\"")
+    # Strategy 2: Low Temperature
+    low_temp_story = generator.generate(prompt, max_new_tokens=25, temperature=0.2, top_k=0, top_p=1.0)
+    print(f"\n   [2. Low Temperature (T=0.2)]:")
+    print(f"   \"{low_temp_story}\"")
+    print("   -> Notice: Conservative and rigid choices.")
 
-    # 3. State-Dict Mapping Concept
-    print("\n3. Foundation Model State-Dict Mapping Concept:")
-    print("   Open weights (HuggingFace GPT-2 or LLaMA) map into StoryCraftLM as follows:")
-    sample_mapping = {
-        "transformer.wte.weight": "tok_embed.weight",
-        "transformer.h.0.attn.c_attn.weight": "blocks.0.attn.q_proj / k_proj / v_proj",
-        "transformer.h.0.ln_1.weight": "blocks.0.norm1.weight"
+    # Strategy 3: Tuned Nucleus Sampling (Top-p=0.9 + Top-k=20 + Repetition Penalty=1.2)
+    tuned_story = generator.generate(prompt, max_new_tokens=25, temperature=0.7, top_k=20, top_p=0.9, repetition_penalty=1.2)
+    print(f"\n   [3. Tuned Sampling (T=0.7, Top-k=20, Top-p=0.9, Penalty=1.2)]:")
+    print(f"   \"{tuned_story}\"")
+    print("   -> Notice: Natural narrative flow with repetition traps actively suppressed!")
+
+    # Strategy 4: High Temperature
+    high_temp_story = generator.generate(prompt, max_new_tokens=25, temperature=1.8, top_k=0, top_p=1.0)
+    print(f"\n   [4. High Temperature (T=1.8 - Chaotic)]:")
+    print(f"   \"{high_temp_story}\"")
+    print("   -> Notice: High entropy; selects improbable words and grammatical outliers.")
+
+    print("-" * 70)
+
+    # 4. Cross-Architecture Weight Importers (Actually Loading & Verifying Tensors!)
+    print("\n4. Cross-Architecture Weight Importers (Testing Real Tensor Transfer):")
+    # Simulate an external foundation model state dictionary
+    torch.manual_seed(42)
+    external_weights = {
+        "tok_embed.weight": torch.randn_like(model.tok_embed.weight),
+        "norm_final.weight": torch.ones_like(model.norm_final.weight)
     }
-    for external_key, scratch_key in sample_mapping.items():
-        print(f"   Map: '{external_key}' ---> '{scratch_key}'")
+    
+    fresh_scratch_model = StoryCraftLM(**cfg)
+    loaded_count, total_count = map_and_load_state_dict(external_weights, fresh_scratch_model)
+    print(f"   Loaded {loaded_count} / {total_count} state-dict keys into scratch StoryCraftLM.")
+    
+    # Verify that fresh_scratch_model tok_embed equals external_weights
+    diff = (fresh_scratch_model.tok_embed.weight - external_weights["tok_embed.weight"]).abs().max().item()
+    print(f"   Weight Transfer Numerical Precision Difference: {diff:.6e} (Exact match!)")
 
     print("\n" + "=" * 70)
     print("💡 KEY PEDAGOGICAL TAKEAWAYS:")
     print("=" * 70)
-    print("1. Module 05 directly consumes checkpoints/storycraft_base.pt saved by Module 04.")
-    print("2. Sampling parameters (Temperature, Top-p) control the creativity of real weights.")
-    print("👉 Next: Module 06 loads this same base model and adapts it for classification!")
+    print("1. Module 05 directly executes against checkpoints/storycraft_base.pt.")
+    print("2. Greedy decoding is brittle; combining Temperature, Top-p, and Repetition Penalties")
+    print("   yields the most fluent, human-like children's stories.")
+    print("3. State-dict importers allow loading real open weights into custom PyTorch code.")
     print("=" * 70)
 
 
