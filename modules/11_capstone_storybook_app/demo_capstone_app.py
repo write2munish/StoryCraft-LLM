@@ -9,9 +9,11 @@ This script demonstrates:
 3. Parameterized story creation: Protagonist, Theme, Reading Age, Moral.
 4. Real-time token streaming typewriter effect.
 5. Interactive "Choose-Your-Own-Adventure" narrative branching.
+6. Direct custom prompt story generation (CLI --prompt or programmatic).
 
 Run this script:
     python3 modules/11_capstone_storybook_app/demo_capstone_app.py
+    python3 modules/11_capstone_storybook_app/demo_capstone_app.py --prompt "Once upon a time, Lily found a golden key."
 """
 
 import os
@@ -55,13 +57,73 @@ class StoryCraftProductionPipeline:
             f"<|im_start|>assistant\n"
         )
 
-    def stream_story(self, prompt: str, max_tokens: int = 35) -> Generator[str, None, None]:
+    def format_custom_prompt(
+        self,
+        user_prompt: str,
+        system_message: str = "You are a magical children's storyteller. Write a wholesome, charming children's story."
+    ) -> str:
+        """
+        Wraps an arbitrary free-form user prompt into canonical ChatML format.
+        """
+        return (
+            f"<|im_start|>system\n{system_message}<|im_end|>\n"
+            f"<|im_start|>user\n{user_prompt}<|im_end|>\n"
+            f"<|im_start|>assistant\n"
+        )
+
+    def _sample_token(
+        self,
+        logits: torch.Tensor,
+        generated_tokens: list = None,
+        temperature: float = 0.8,
+        top_k: int = 25,
+        repetition_penalty: float = 2.0
+    ) -> int:
+        if repetition_penalty > 1.0 and generated_tokens:
+            for tok_id in set(generated_tokens[-20:]):
+                if logits[tok_id] > 0:
+                    logits[tok_id] /= repetition_penalty
+                else:
+                    logits[tok_id] *= repetition_penalty
+
+        if temperature <= 0.0 or top_k == 1:
+            return torch.argmax(logits).item()
+
+        logits = logits / max(temperature, 1e-5)
+        if top_k > 0:
+            top_k_val = min(top_k, logits.size(-1))
+            v, _ = torch.topk(logits, top_k_val)
+            logits[logits < v[-1]] = -float("Inf")
+        probs = torch.softmax(logits, dim=-1)
+        return torch.multinomial(probs, num_samples=1).item()
+
+    def stream_story(
+        self,
+        prompt: str,
+        max_tokens: int = 35,
+        delay: float = 0.04,
+        temperature: float = 0.8,
+        top_k: int = 25,
+        repetition_penalty: float = 2.0
+    ) -> Generator[str, None, None]:
         prompt_ids = self.tokenizer.encode(prompt, add_special_tokens=False)
+        if not prompt_ids:
+            prompt_ids = [self.tokenizer.bos_id if self.tokenizer.bos_id is not None else 1]
+
+        generated_ids = list(prompt_ids)
         with torch.no_grad():
             inp = torch.tensor([prompt_ids], dtype=torch.long)
             logits, past_kvs = self.model(inp, past_kvs=None)
-            next_tok = torch.argmax(logits[0, -1, :]).item()
-            
+            next_logits = logits[0, -1, :].clone()
+            next_tok = self._sample_token(
+                next_logits,
+                generated_tokens=generated_ids,
+                temperature=temperature,
+                top_k=top_k,
+                repetition_penalty=repetition_penalty
+            )
+            generated_ids.append(next_tok)
+
             word = self.tokenizer.decode([next_tok])
             if word:
                 yield word + " "
@@ -69,13 +131,46 @@ class StoryCraftProductionPipeline:
             for _ in range(max_tokens - 1):
                 single_inp = torch.tensor([[next_tok]], dtype=torch.long)
                 logits, past_kvs = self.model(single_inp, past_kvs=past_kvs)
-                next_tok = torch.argmax(logits[0, -1, :]).item()
+                next_logits = logits[0, -1, :].clone()
+                next_tok = self._sample_token(
+                    next_logits,
+                    generated_tokens=generated_ids,
+                    temperature=temperature,
+                    top_k=top_k,
+                    repetition_penalty=repetition_penalty
+                )
+                generated_ids.append(next_tok)
                 if next_tok == self.tokenizer.eos_id:
                     break
                 word = self.tokenizer.decode([next_tok])
                 if word:
                     yield word + " "
-                time.sleep(0.04)  # Real-time streaming typewriter simulation
+                if delay > 0:
+                    time.sleep(delay)
+
+    def generate_story(
+        self,
+        prompt: str,
+        max_tokens: int = 35,
+        wrap_chatml: bool = False,
+        temperature: float = 0.7,
+        top_k: int = 25,
+        repetition_penalty: float = 1.2
+    ) -> str:
+        """
+        Directly generates a complete story string from a given prompt.
+        If wrap_chatml is True, wraps the prompt in standard ChatML tags.
+        """
+        formatted_prompt = self.format_custom_prompt(prompt) if wrap_chatml else prompt
+        words = list(self.stream_story(
+            formatted_prompt,
+            max_tokens=max_tokens,
+            delay=0.0,
+            temperature=temperature,
+            top_k=top_k,
+            repetition_penalty=repetition_penalty
+        ))
+        return "".join(words).strip()
 
     def branch_story(self, story_prefix: str, alternate_choice: str) -> str:
         return f"{story_prefix.strip()} Instead of returning home, the hero decided to {alternate_choice}. A new magical adventure unfolded beneath the starry sky!"
@@ -89,8 +184,8 @@ def main():
 
     app = StoryCraftProductionPipeline()
 
-    # 1. User UI Controls
-    print("\n1. User Story Configuration:")
+    # 1. User UI Controls (Preset Parameters)
+    print("\n1. Scenario 1: Structured UI Controls (Preset Parameters):")
     config = {
         "protagonist": "Sparky the Dragon",
         "theme": "Forest Adventure",
@@ -103,7 +198,7 @@ def main():
     prompt = app.format_prompt(**config)
 
     # 2. Real-Time Token Streaming
-    print("\n2. Live Streaming Real Tokens from Checkpoint:")
+    print("\n2. Scenario 2: Live Streaming Real Tokens from Checkpoint:")
     print("   " + "-" * 66)
     print("   ", end="", flush=True)
 
@@ -113,12 +208,28 @@ def main():
         streamed_words.append(token)
     print("\n   " + "-" * 66)
 
-    story_text = "".join(streamed_words).strip()
-
     # 3. Choose-Your-Own-Adventure Branching
-    print("\n3. Interactive Branching (Choose-Your-Own-Adventure):")
+    print("\n3. Scenario 3: Interactive Branching (Choose-Your-Own-Adventure):")
     branched = app.branch_story("Lily smiled and played in the sunny garden.", alternate_choice="follow the rainbow path")
     print(f"   Branch Result: \"{branched}\"")
+
+    # 4. Direct Custom Prompt Scenario (On-Demand Story Generation)
+    print("\n4. Scenario 4: Direct Custom Prompt Story Generation:")
+    custom_prompt = "Once upon a time, Lily found a little blue bird in the forest."
+    for i, arg in enumerate(sys.argv):
+        if arg in ("--prompt", "-p") and i + 1 < len(sys.argv):
+            custom_prompt = sys.argv[i + 1]
+
+    print(f"   Input Prompt: \"{custom_prompt}\"")
+    print("   Live Generated Story:")
+    print("   " + "-" * 66)
+    print("   ", end="", flush=True)
+
+    custom_words = []
+    for token in app.stream_story(custom_prompt, max_tokens=25, delay=0.03):
+        print(token, end="", flush=True)
+        custom_words.append(token)
+    print("\n   " + "-" * 66)
 
     print("\n" + "=" * 70)
     print("🎉 FULL LIFECYCLE COMPLETE: FROM ZERO TO PERSISTENT DEPLOYED LLM!")

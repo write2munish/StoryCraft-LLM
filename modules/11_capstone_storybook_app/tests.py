@@ -32,5 +32,18 @@ class TestCapstoneApp(unittest.TestCase):
         self.assertIn("jump in the water", branched)
         self.assertTrue(branched.startswith("Lily saw a pond."))
 
+    def test_custom_prompt_generation(self):
+        custom_prompt = "Once upon a time, Lily found a little blue bird."
+        story = self.app.generate_story(custom_prompt, max_tokens=12, wrap_chatml=False)
+        self.assertIsInstance(story, str)
+        self.assertGreater(len(story), 0)
+
+    def test_format_custom_prompt_chatml(self):
+        instruction = "Write a story about a dragon who loves strawberry jam."
+        formatted = self.app.format_custom_prompt(instruction)
+        self.assertIn("<|im_start|>user\nWrite a story about a dragon who loves strawberry jam.<|im_end|>", formatted)
+        self.assertTrue(formatted.endswith("<|im_start|>assistant\n"))
+
+
 if __name__ == "__main__":
     unittest.main()

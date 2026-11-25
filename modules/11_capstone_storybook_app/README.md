@@ -5,12 +5,20 @@
 ---
 
 ## 🎯 What to Expect
-- **What You Will Build & Run:** You will execute `demo_capstone_app.py`, which integrates the entire course pipeline from checkpoint loading to real-time streaming inference and narrative branching.
-- **What You Will See:** The terminal displays user configuration parameters (Protagonist, Theme, Reading Age, Moral), streams generated story tokens live onto your screen with a real-time typewriter effect, and executes an interactive "Choose-Your-Own-Adventure" narrative branch.
+- **What You Will Build & Run:** You will execute `demo_capstone_app.py`, which integrates the entire course pipeline from checkpoint loading to real-time streaming inference, narrative branching, and direct free-form story prompting.
+- **What You Will See:** The terminal displays:
+  1. **Structured UI Controls:** Parameters (Protagonist, Theme, Reading Age, Moral).
+  2. **Real-Time Token Streaming:** Live typewriter streaming output from the aligned checkpoint.
+  3. **Interactive Narrative Branching:** "Choose-Your-Own-Adventure" storyline forking.
+  4. **Direct Custom Prompt Generation:** Give any custom prompt via CLI or code and watch the model generate a complete story on demand!
 - **What You Will Observe:** You will observe the complete end-to-end lifecycle of a production LLM: raw tokens $\to$ embeddings $\to$ causal blocks $\to$ SFT formatting $\to$ DPO values $\to$ KV cache $\to$ live user experience!
-- **Run Command:**
+- **Run Commands:**
   ```bash
+  # Standard demo (runs all scenarios)
   python3 modules/11_capstone_storybook_app/demo_capstone_app.py
+
+  # Custom prompt scenario
+  python3 modules/11_capstone_storybook_app/demo_capstone_app.py --prompt "Once upon a time, Lily found a golden key."
   ```
 
 ---
@@ -64,7 +72,7 @@ Imagine being a software engineer at a children's storytelling studio:
 modules/11_capstone_storybook_app/
 ├── README.md               # This module guide
 ├── demo_capstone_app.py    # Runnable production pipeline & streaming story generator
-└── tests.py                # 3-test unit suite verifying prompt formatting, streaming & branching
+└── tests.py                # 5-test unit suite verifying prompt formatting, streaming, branching & custom prompting
 ```
 
 ---
@@ -73,7 +81,8 @@ modules/11_capstone_storybook_app/
 1. **The Full Lifecycle Complete:** You have designed, implemented, pre-trained, fine-tuned, aligned, optimized, and deployed a modern LLM from absolute first principles!
 2. **Token Streaming is Essential for UX:** Streaming tokens via generators or Server-Sent Events (SSE) gives users instant perceived response time, regardless of total sequence length.
 3. **Prompt Formatting is Part of the Architecture:** Post-trained models depend on exact delimiter matching (`<|im_start|>`, `<|im_end|>`) to activate their instruction-following behavior.
-4. **First-Principles Confidence:** Because you built every layer in pure PyTorch without black-box abstractions, you now understand the exact internal mechanics of commercial models like LLaMA, Mistral, and Claude.
+4. **Flexible Prompting Scenarios:** The production pipeline supports both structured parameter forms (for curated user apps) and free-form open prompts (for general narrative generation).
+5. **First-Principles Confidence:** Because you built every layer in pure PyTorch without black-box abstractions, you now understand the exact internal mechanics of commercial models like LLaMA, Mistral, and Claude.
 
 ---
 
@@ -81,6 +90,9 @@ modules/11_capstone_storybook_app/
 ```bash
 # Run the interactive Capstone Storybook demonstration
 python3 modules/11_capstone_storybook_app/demo_capstone_app.py
+
+# Test direct custom prompt generation via CLI
+python3 modules/11_capstone_storybook_app/demo_capstone_app.py --prompt "Once upon a time, Lily found a golden key."
 
 # Run the automated unit tests
 python3 modules/11_capstone_storybook_app/tests.py
