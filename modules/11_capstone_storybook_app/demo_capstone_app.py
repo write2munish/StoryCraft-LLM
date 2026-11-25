@@ -106,6 +106,10 @@ class StoryCraftProductionPipeline:
         top_k: int = 25,
         repetition_penalty: float = 2.0
     ) -> Generator[str, None, None]:
+        # Wrap raw prompts into ChatML if delimiters are missing, aligning with post-trained model expectations
+        if "<|im_start|>" not in prompt:
+            prompt = self.format_custom_prompt(prompt)
+
         prompt_ids = self.tokenizer.encode(prompt, add_special_tokens=False)
         if not prompt_ids:
             prompt_ids = [self.tokenizer.bos_id if self.tokenizer.bos_id is not None else 1]
