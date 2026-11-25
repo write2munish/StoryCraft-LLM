@@ -28,21 +28,29 @@ from storycraft import set_seed, StoryTokenizer, StoryCraftLM
 
 
 class StoryCraftProductionPipeline:
-    def __init__(self):
+    def __init__(self, model_type: str = "aligned"):
         chk_dir = os.path.join(repo_root, "checkpoints")
         tok_path = os.path.join(chk_dir, "tokenizer.pkl")
-        aligned_path = os.path.join(chk_dir, "storycraft_aligned.pt")
 
-        print("   [Pipeline] Loading persistent StoryCraft-Aligned model...")
-        if os.path.exists(tok_path) and os.path.exists(aligned_path):
+        ckpt_filenames = {
+            "base": "storycraft_base.pt",
+            "instruct": "storycraft_instruct.pt",
+            "aligned": "storycraft_aligned.pt"
+        }
+        self.model_type = model_type.lower()
+        target_filename = ckpt_filenames.get(self.model_type, "storycraft_aligned.pt")
+        target_path = os.path.join(chk_dir, target_filename)
+
+        print(f"   [Pipeline] Loading persistent StoryCraft-{self.model_type.title()} model...")
+        if os.path.exists(tok_path) and os.path.exists(target_path):
             self.tokenizer = StoryTokenizer.from_pretrained(tok_path)
-            ckpt = torch.load(aligned_path, map_location="cpu", weights_only=False)
+            ckpt = torch.load(target_path, map_location="cpu", weights_only=False)
             cfg = ckpt.get("config", {"vocab_size": self.tokenizer.vocab_size, "d_model": 128, "n_layers": 4, "n_heads": 4})
             self.model = StoryCraftLM(**cfg)
             clean_state = {k: v for k, v in ckpt["model_state_dict"].items() if "lora_" not in k}
             self.model.load_state_dict(clean_state, strict=False)
             self.model.eval()
-            print(f"   ✓ Successfully initialized from: {aligned_path}")
+            print(f"   ✓ Successfully initialized from: {target_path}")
         else:
             self.tokenizer = StoryTokenizer(target_vocab_size=128)
             self.model = StoryCraftLM(vocab_size=128, d_model=64, n_layers=2, n_heads=2)
@@ -106,8 +114,9 @@ class StoryCraftProductionPipeline:
         top_k: int = 25,
         repetition_penalty: float = 2.0
     ) -> Generator[str, None, None]:
-        # Wrap raw prompts into ChatML if delimiters are missing, aligning with post-trained model expectations
-        if "<|im_start|>" not in prompt:
+        # Only wrap into ChatML if using an instruction/aligned model and ChatML tags are missing.
+        # If using the base model, it completes the raw story prompt directly.
+        if self.model_type in ("aligned", "instruct") and "<|im_start|>" not in prompt:
             prompt = self.format_custom_prompt(prompt)
 
         prompt_ids = self.tokenizer.encode(prompt, add_special_tokens=False)
@@ -186,7 +195,13 @@ def main():
     print("🏰 MODULE 11: CAPSTONE PROJECT - THE INTERACTIVE STORYBOOK APP")
     print("=" * 70)
 
-    app = StoryCraftProductionPipeline()
+    # Allow selecting checkpoint via CLI: --model base | instruct | aligned
+    model_type = "aligned"
+    for i, arg in enumerate(sys.argv):
+        if arg in ("--model", "-m") and i + 1 < len(sys.argv):
+            model_type = sys.argv[i + 1]
+
+    app = StoryCraftProductionPipeline(model_type=model_type)
 
     # 1. User UI Controls (Preset Parameters)
     print("\n1. Scenario 1: Structured UI Controls (Preset Parameters):")

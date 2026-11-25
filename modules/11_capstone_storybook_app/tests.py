@@ -44,6 +44,12 @@ class TestCapstoneApp(unittest.TestCase):
         self.assertIn("<|im_start|>user\nWrite a story about a dragon who loves strawberry jam.<|im_end|>", formatted)
         self.assertTrue(formatted.endswith("<|im_start|>assistant\n"))
 
+    def test_pipeline_model_type_switching(self):
+        base_app = StoryCraftProductionPipeline(model_type="base")
+        self.assertEqual(base_app.model_type, "base")
+        story = base_app.generate_story("Once upon a time", max_tokens=8)
+        self.assertIsInstance(story, str)
+
 
 if __name__ == "__main__":
     unittest.main()

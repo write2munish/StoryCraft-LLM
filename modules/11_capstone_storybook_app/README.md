@@ -14,11 +14,14 @@
 - **What You Will Observe:** You will observe the complete end-to-end lifecycle of a production LLM: raw tokens $\to$ embeddings $\to$ causal blocks $\to$ SFT formatting $\to$ DPO values $\to$ KV cache $\to$ live user experience!
 - **Run Commands:**
   ```bash
-  # Standard demo (runs all scenarios)
+  # Standard demo (loads storycraft_aligned.pt, runs all scenarios)
   python3 modules/11_capstone_storybook_app/demo_capstone_app.py
 
-  # Custom prompt scenario
+  # Test custom prompt with aligned model
   python3 modules/11_capstone_storybook_app/demo_capstone_app.py --prompt "Once upon a time, Lily found a golden key."
+
+  # Test custom prompt directly with base model (storycraft_base.pt from Module 04)
+  python3 modules/11_capstone_storybook_app/demo_capstone_app.py --model base --prompt "Once upon a time Lily"
   ```
 
 ---
